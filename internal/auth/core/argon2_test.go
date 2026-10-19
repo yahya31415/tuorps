@@ -67,18 +67,18 @@ func TestVerifyPasswordRejectsMalformedOrHostileHashes(t *testing.T) {
 	parts := strings.Split(good, "$") // "", argon2id, v=19, m=..., salt, hash
 	join := func(p ...string) string { return strings.Join(p, "$") }
 	cases := map[string]string{
-		"empty":            "",
-		"bcrypt":           "$2b$12$abcdefghijklmnopqrstuuabcdefghijklmnopqrstuvwxyzABCDE",
-		"argon2i":          join("", "argon2i", parts[2], parts[3], parts[4], parts[5]),
-		"wrong version":    join("", "argon2id", "v=16", parts[3], parts[4], parts[5]),
-		"memory bomb":      join("", "argon2id", "v=19", "m=4294967295,t=1,p=1", parts[4], parts[5]),
-		"time bomb":        join("", "argon2id", "v=19", "m=64,t=100000,p=1", parts[4], parts[5]),
-		"zero threads":     join("", "argon2id", "v=19", "m=64,t=1,p=0", parts[4], parts[5]),
-		"bad params":       join("", "argon2id", "v=19", "m=64;t=1;p=1", parts[4], parts[5]),
-		"short salt":       join("", "argon2id", "v=19", parts[3], "AQEB", parts[5]),
-		"bad base64":       join("", "argon2id", "v=19", parts[3], parts[4], "!!!"),
-		"truncated":        join("", "argon2id", "v=19", parts[3], parts[4]),
-		"extra field":      good + "$x",
+		"empty":         "",
+		"bcrypt":        "$2b$12$abcdefghijklmnopqrstuuabcdefghijklmnopqrstuvwxyzABCDE",
+		"argon2i":       join("", "argon2i", parts[2], parts[3], parts[4], parts[5]),
+		"wrong version": join("", "argon2id", "v=16", parts[3], parts[4], parts[5]),
+		"memory bomb":   join("", "argon2id", "v=19", "m=4294967295,t=1,p=1", parts[4], parts[5]),
+		"time bomb":     join("", "argon2id", "v=19", "m=64,t=100000,p=1", parts[4], parts[5]),
+		"zero threads":  join("", "argon2id", "v=19", "m=64,t=1,p=0", parts[4], parts[5]),
+		"bad params":    join("", "argon2id", "v=19", "m=64;t=1;p=1", parts[4], parts[5]),
+		"short salt":    join("", "argon2id", "v=19", parts[3], "AQEB", parts[5]),
+		"bad base64":    join("", "argon2id", "v=19", parts[3], parts[4], "!!!"),
+		"truncated":     join("", "argon2id", "v=19", parts[3], parts[4]),
+		"extra field":   good + "$x",
 	}
 	for name, h := range cases {
 		t.Run(name, func(t *testing.T) {

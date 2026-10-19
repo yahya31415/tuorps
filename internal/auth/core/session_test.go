@@ -9,7 +9,9 @@ import (
 	"github.com/yahya31415/tuorps/internal/auth/core"
 )
 
-func policy() core.SessionPolicy { return core.SessionPolicy{Idle: 12 * time.Hour, Absolute: 14 * 24 * time.Hour} }
+func policy() core.SessionPolicy {
+	return core.SessionPolicy{Idle: 12 * time.Hour, Absolute: 14 * 24 * time.Hour}
+}
 
 func t0() time.Time { return time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC) }
 
