@@ -8,7 +8,7 @@ COMPOSE  := docker compose -f compose.yaml -f compose.dev.yaml
 
 .DEFAULT_GOAL := help
 .PHONY: help check fmt fmt-check vet staticcheck gosec vuln test cover-gate fuzz-smoke bench \
-	build images up down logs dev-secrets storage-init migrate-up migrate-down migrate-status red green
+	build images up down logs smoke dev-secrets storage-init migrate-up migrate-down migrate-status red green
 
 help: ## List targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -74,6 +74,9 @@ logs: ## Follow stack logs
 
 storage-init: ## Bootstrap the Garage layout, key and media bucket
 	@$(ROOT)/scripts/storage-init.sh
+
+smoke: ## End-to-end checks against the running stack (networking, isolation, hardening)
+	@$(ROOT)/scripts/stack-smoke.sh
 
 migrate-up: ## Apply migrations in the stack
 	$(COMPOSE) run --rm migrate migrate up
