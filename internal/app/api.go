@@ -21,6 +21,7 @@ import (
 	"github.com/yahya31415/tuorps/internal/platform/jobs"
 	"github.com/yahya31415/tuorps/internal/platform/ratelimit"
 	"github.com/yahya31415/tuorps/internal/workspace"
+	wshttp "github.com/yahya31415/tuorps/internal/workspace/http"
 )
 
 const mfaChallengeTTL = 5 * time.Minute
@@ -52,18 +53,22 @@ func BuildAPI(cfg config.Config, deps *Deps, log *slog.Logger) (*API, error) {
 	}
 	now := clock.System()
 	policy := authcore.SessionPolicy{Idle: cfg.Auth.SessionIdle, Absolute: cfg.Auth.SessionAbsolute}
+	writer := audit.NewWriter(deps.Pool, ids.System(), now)
+	sessions := auth.NewSessionStore(deps.Redis, policy, now, rand.Reader)
+	outbox := email.NewOutbox(inserter, keys, rand.Reader)
+	limiter := ratelimit.NewLimiter(ratelimit.RedisStore(deps.Redis), now, log)
 
 	rt := httpx.NewRouter()
 	healthhttp.Register(rt, deps.Checks(), cfg.ReadinessTimeout, log)
 	if err := authhttp.Register(rt, authhttp.Deps{
 		Pool:        deps.Pool,
-		Writer:      audit.NewWriter(deps.Pool, ids.System(), now),
+		Writer:      writer,
 		Hasher:      auth.NewHasher(authcore.DefaultArgon2(), cfg.Auth.Argon2MaxConcurrency, rand.Reader),
-		Sessions:    auth.NewSessionStore(deps.Redis, policy, now, rand.Reader),
+		Sessions:    sessions,
 		Challenges:  auth.NewChallengeStore(deps.Redis, mfaChallengeTTL, rand.Reader),
-		Mailer:      email.NewOutbox(inserter, keys, rand.Reader),
+		Mailer:      outbox,
 		Keys:        keys,
-		Limiter:     ratelimit.NewLimiter(ratelimit.RedisStore(deps.Redis), now, log),
+		Limiter:     limiter,
 		ClientIP:    resolver,
 		Origin:      cfg.AppOrigin,
 		SessionLife: cfg.Auth.SessionAbsolute,
@@ -72,6 +77,22 @@ func BuildAPI(cfg config.Config, deps *Deps, log *slog.Logger) (*API, error) {
 		Rand:        rand.Reader,
 		Log:         log,
 		Bootstrap:   workspace.Bootstrap,
+	}); err != nil {
+		return nil, err
+	}
+	if err := wshttp.Register(rt, wshttp.Deps{
+		Pool:     deps.Pool,
+		Writer:   writer,
+		Sessions: sessions,
+		Mailer:   outbox,
+		Keys:     keys,
+		Limiter:  limiter,
+		ClientIP: resolver,
+		Origin:   cfg.AppOrigin,
+		Now:      now,
+		NewID:    ids.System(),
+		Rand:     rand.Reader,
+		Log:      log,
 	}); err != nil {
 		return nil, err
 	}
