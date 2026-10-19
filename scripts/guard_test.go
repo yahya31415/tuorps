@@ -77,6 +77,8 @@ func TestGuardEditDecisions(t *testing.T) {
 		{"dir merely prefixed docs", "internal/docsgen/a.go", noRed, 2},
 		{"traversal out of test-looking dir", "internal/a_test.go/../a.go", noRed, 2},
 		{"traversal back into project", "internal/x/../../internal/x/core/a.go", noRed, 2},
+		{"traversal out of an allowed dir", "docs/../internal/x/core/a.go", noRed, 2},
+		{"traversal out of testdata", "internal/x/testdata/../core/a.go", noRed, 2},
 
 		{"guard state file is never writable", ".tdd/red", freshRed, 2},
 		{"guard state dir is never writable", ".tdd/other", noRed, 2},
