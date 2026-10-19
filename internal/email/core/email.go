@@ -181,8 +181,8 @@ func BuildMIME(from mail.Address, m Message, r Rendered, messageID string, date 
 	}
 	var b bytes.Buffer
 	header := func(k, v string) { b.WriteString(k + ": " + v + "\r\n") }
-	header("From", from.String())
-	header("To", m.to.String())
+	header("From", formatAddress(from))
+	header("To", formatAddress(m.to))
 	header("Subject", mime.QEncoding.Encode("utf-8", r.Subject))
 	header("Date", date.Format(time.RFC1123Z))
 	header("Message-ID", messageID)
@@ -238,4 +238,16 @@ func validBoundary(b string) bool {
 	return !strings.ContainsFunc(b, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
 	})
+}
+
+// formatAddress renders a for an address header. mail.Address.String
+// Q-encodes non-ASCII names, and Q-encoding leaves characters such as '\'
+// that are not valid in a display-name atom; B-encoding never does.
+func formatAddress(a mail.Address) string {
+	for _, r := range a.Name {
+		if r >= utf8.RuneSelf || !unicode.IsPrint(r) {
+			return mime.BEncoding.Encode("utf-8", a.Name) + " <" + a.Address + ">"
+		}
+	}
+	return a.String()
 }
