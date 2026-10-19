@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/netip"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -12,10 +11,9 @@ import (
 )
 
 var (
-	errBool          = errors.New("invalid value: want true or false")
 	errOrigin        = errors.New("invalid value: want an origin such as https://app.example.in (no path)")
 	errHTTPSRequired = errors.New("invalid value: https is required in prod")
-	errCookieProd    = errors.New("invalid value: secure cookies are required in prod")
+	errRemoved       = errors.New("invalid value: setting removed (session cookies are always Secure); unset it")
 	errIdleAbsolute  = errors.New("invalid value: idle timeout exceeds the absolute timeout")
 	errCIDR          = errors.New("invalid value: want comma-separated CIDRs")
 	errKeyring       = errors.New("invalid value: want <key-id>:<base64 32-byte key> lines")
@@ -24,7 +22,6 @@ var (
 
 // Auth configures sessions and password hashing.
 type Auth struct {
-	CookieSecure         bool
 	SessionIdle          time.Duration
 	SessionAbsolute      time.Duration
 	Argon2MaxConcurrency int // bounds argon2id memory: each hash uses ~46 MiB
@@ -43,14 +40,6 @@ func (e Encryption) Keyring() (*keyring.Keyring, error) {
 		return nil, err
 	}
 	return keyring.New(keys, e.ActiveKeyID)
-}
-
-func parseBool(s string) (bool, error) {
-	b, err := strconv.ParseBool(s)
-	if err != nil {
-		return false, errBool
-	}
-	return b, nil
 }
 
 // parseOrigin accepts scheme://host[:port] with http(s) and nothing else.
@@ -90,13 +79,15 @@ func (r *reader) readAuth(cfg *Config) {
 		}
 	}
 	cfg.Auth = Auth{
-		CookieSecure:         opt(r, "COOKIE_SECURE", true, parseBool),
 		SessionIdle:          opt(r, "SESSION_IDLE_TIMEOUT", 12*time.Hour, parseDuration),
 		SessionAbsolute:      opt(r, "SESSION_ABSOLUTE_TIMEOUT", 14*24*time.Hour, parseDuration),
 		Argon2MaxConcurrency: opt(r, "ARGON2_MAX_CONCURRENCY", 4, parsePositiveInt),
 	}
 	cfg.TrustedProxies = opt(r, "TRUSTED_PROXY_CIDRS", []netip.Prefix(nil), parseCIDRs)
 
+	if _, set := r.raw("COOKIE_SECURE"); set {
+		r.fail("COOKIE_SECURE", errRemoved)
+	}
 	if cfg.Auth.SessionIdle > cfg.Auth.SessionAbsolute {
 		r.fail("SESSION_IDLE_TIMEOUT", errIdleAbsolute)
 	}
@@ -106,9 +97,6 @@ func (r *reader) readAuth(cfg *Config) {
 			r.fail("APP_ORIGIN", ErrMissing)
 		case cfg.AppOrigin.Scheme != "https":
 			r.fail("APP_ORIGIN", errHTTPSRequired)
-		}
-		if !cfg.Auth.CookieSecure {
-			r.fail("COOKIE_SECURE", errCookieProd)
 		}
 	}
 
