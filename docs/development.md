@@ -45,6 +45,23 @@ Adapter, migration and binary tests start Postgres 18.6 and Redis 8.8 through
 testcontainers (`internal/platform/testinfra`), using the same role bootstrap
 as production. They need a Docker daemon. They never call external APIs.
 
+## HTTP API tests
+
+`internal/apitest` runs the whole API (`app.BuildAPI`) over testcontainers
+Postgres (migrated, plus River's schema) and Redis, behind
+`httptest.NewTLSServer`, so the `__Host-` cookie works. It provides:
+
+- `Client()`: a browser-like client with its own cookie jar and client IP
+  (via `X-Forwarded-For` from a trusted loopback proxy);
+- `SignUp(email, workspace)`: an account that is signed up, verified and
+  logged in;
+- `Emails()` / `LastEmailTo()` / `TokenFrom()`: queued email, decrypted from
+  River's job table.
+
+Every endpoint test includes 401, 403, a cross-tenant 404, validation errors
+and audit assertions. Each request type also has a decoder fuzz target
+(`httpxtest.FuzzDecode`).
+
 ## Stack smoke test
 
 `make smoke` (after `make dev-secrets up storage-init`) checks the running
@@ -59,6 +76,13 @@ stack end to end:
 - Redis ACLs and anonymous S3 refusal;
 - `/readyz` during a Redis outage;
 - secrets absent from logs;
+- the account flow: signup returns 202, login before verification returns
+  403, and anonymous requests return 401. With the dev overlay it continues:
+  - the verification email is read from Mailpit's API;
+  - verify, log in, create a brand;
+  - the audit log shows `brand.create`;
+  - a second account gets 404 on the first workspace;
+  - logout ends the session;
 - graceful SIGTERM exits.
 
 The script detects its mode from the stack:
@@ -95,3 +119,12 @@ migrations, but not network isolation. In that mode `make smoke` reports
 exactly 4 failures: service DNS plus the three "cannot reach the internet"
 checks. This is the expected negative control showing the isolation checks
 detect missing isolation.
+
+A lighter option for the account flow alone, as used to verify M2:
+- run `postgres`, `redis` and `mailpit` in Compose (dev overlay, plus
+  Mailpit's SMTP port `1025` published on loopback);
+- run `api migrate up`, `api serve` and `worker serve` as host processes,
+  with the secrets' hostnames rewritten to `127.0.0.1`;
+- run the "account flow" section of `scripts/stack-smoke.sh`.
+
+Published ports work here; only container-to-container traffic is dropped.

@@ -49,6 +49,8 @@ variables. They are never placed in plain environment variables or images.
 | `migrate_database_url` | migrate (`tuorps_migrator`: owns schema `tuorps`) |
 | `redis_url`, `redis_acl` | api, worker / redis (default user disabled; app user has no `@dangerous` commands; `healthcheck` user may only `PING`) |
 | `garage_rpc_secret`, `garage_admin_token`, `garage_access_key_id`, `garage_secret_key` | garage / storage bootstrap |
+| `encryption_keys` | api, worker: AES-256-GCM keyring (`kid:base64` lines) for TOTP secrets and queued-email payloads |
+| `smtp_password` | worker, only when `SMTP_PASSWORD_FILE=/run/secrets/smtp_password` is set |
 
 For local development, `make dev-secrets` generates them into `secrets/`
 (gitignored, directory mode 0700). In production, provision them from the
@@ -84,6 +86,59 @@ missing or invalid variable, and never echoes values.
 | `DB_MAX_CONN_LIFETIME` / `DB_MAX_CONN_IDLE_TIME` | `1h` / `15m` | |
 | `REDIS_POOL_SIZE` | `20` | |
 | `REDIS_DIAL_TIMEOUT` / `REDIS_READ_TIMEOUT` / `REDIS_WRITE_TIMEOUT` | `2s` / `1s` / `1s` | |
+| `APP_ORIGIN` | `http://localhost:8080` | The browser app's origin: email links and the trusted CSRF origin. **Required and `https` when `TUORPS_ENV=prod`.** |
+| `SESSION_IDLE_TIMEOUT` / `SESSION_ABSOLUTE_TIMEOUT` | `12h` / `336h` (14d) | idle ≤ absolute |
+| `TRUSTED_PROXY_CIDRS` | none | Comma-separated CIDRs of your reverse proxies. `X-Forwarded-For` is honoured only from these (client IP for rate limits and audit). |
+| `ARGON2_MAX_CONCURRENCY` | `4` | Concurrent password hashes (each uses 46 MiB). |
+| `ENCRYPTION_KEYS` / `_FILE` | required | One `kid:base64(32 bytes)` per line. Keep old keys to read old data. |
+| `ENCRYPTION_ACTIVE_KEY_ID` | required | Key ID used for new encryptions; must be listed in `ENCRYPTION_KEYS`. |
+| `SMTP_HOST` | required by the worker | |
+| `SMTP_PORT` | `587` | |
+| `SMTP_TLS` | `starttls` | `starttls`, `implicit` (465) or `none` (only with `TUORPS_ENV=dev`) |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` / `_FILE` | none | A password requires a username. |
+| `SMTP_TIMEOUT` | `10s` | Dial and I/O deadline per send. |
+| `MAIL_FROM` | required by the worker | e.g. `Tuorps <no-reply@mail.example.in>` |
+
+`COOKIE_SECURE` has been removed: the session cookie is always `Secure`
+(ADR 0005). Setting it is a startup error, so stale configuration cannot
+silently weaken the cookie.
 
 Every database session also gets `statement_timeout=15s` and
 `idle_in_transaction_session_timeout=30s`.
+
+## Email delivery
+
+The worker sends transactional email (verification, password reset,
+invitations, security notices) over SMTP (ADR 0007). The API only queues
+messages, inside the same transaction as the write that caused them
+(ADR 0004).
+
+Recommended for India residency: **Amazon SES in `ap-south-1` (Mumbai)**.
+
+1. Verify the sending domain in SES `ap-south-1`. Publish its DKIM CNAMEs,
+   SPF (`include:amazonses.com`) and a DMARC policy.
+2. Create SMTP credentials. These are SES SMTP credentials, not an IAM
+   access key.
+3. Configure the worker:
+
+   ```sh
+   SMTP_HOST=email-smtp.ap-south-1.amazonaws.com
+   SMTP_PORT=587 SMTP_TLS=starttls
+   SMTP_USERNAME=<SES SMTP username>
+   SMTP_PASSWORD_FILE=/run/secrets/smtp_password   # secrets/smtp_password holds the password
+   MAIL_FROM="Tuorps <no-reply@mail.example.in>"
+   ```
+
+ZeptoMail (Zoho, India data centre) and Postmark work the same way. Locally,
+`make up` routes all mail to Mailpit; open <http://127.0.0.1:8025>.
+
+## Session and proxy setup
+
+- Serve the browser app and the API from the **same site** over HTTPS, and
+  set `APP_ORIGIN` to the app's origin. Cross-origin writes are refused.
+- Put the reverse proxy's addresses in `TRUSTED_PROXY_CIDRS`, so that rate
+  limits and audit entries see the real client IP. Otherwise every client
+  appears as the proxy.
+- The audit log stores a keyed hash of the client IP (HMAC derived from the
+  keyring), never the raw IP.
+

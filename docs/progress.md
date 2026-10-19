@@ -6,15 +6,15 @@
 | --- | --- |
 | Step 0: CLAUDE.md + TDD guard | ✅ done |
 | M1 Foundation | ✅ done (2026-10-19) |
-| M2 Auth and tenancy | next |
-| M3 Account connections and token vault | — |
+| M2 Auth, tenancy, audit and email | ✅ done (2026-10-19) |
+| M3 Account connections and token vault | next |
 | M4 Publishing | — |
 | M5 Unified inbox | — |
 | M6 WhatsApp suite | — |
 | M7 Analytics | — |
 | M8 Approvals and agencies | — |
 | M9 Billing and compliance | — |
-| M10 Extras | — |
+| M10 Extras (email moved to M2) | — |
 
 ## Step 0: CLAUDE.md and the TDD guard
 
@@ -120,15 +120,131 @@ Delivered:
     answer probes that share another container's namespace. The probes now
     use TCP connects to IP literals.
 
+## M2: Auth, tenancy, audit and email
+
+Plan: `merry-cuddling-wren`. Decisions are recorded in ADRs 0004–0007.
+
+Delivered:
+- **Platform**:
+  - `keyring`: AES-256-GCM, key IDs for rotation, HKDF sub-keys.
+  - `clientip`: trusted-proxy `X-Forwarded-For` walk.
+  - `ratelimit`: pure sliding-window core, an atomic Redis Lua adapter, and
+    middleware. Auth classes fail closed; writes fail open.
+  - `jobs`: River, with its migrations run by `api migrate up`.
+  - `httpx` keyset pages: opaque cursors, bounded limits.
+  - `postgres.InTx` / `InReadTx` with tenant and user GUCs.
+  - Config: origin, sessions, proxies, keyring, SMTP. `COOKIE_SECURE` is
+    removed and rejected.
+- **Schema** (`00002_identity_tenancy.sql`):
+  - users and separate credentials, recovery codes, email tokens;
+  - workspaces, members, brands, brand roles, invitations;
+  - append-only audit log.
+
+  RLS covers every table, three narrow `SECURITY DEFINER` pre-auth
+  functions handle lookups before login, and composite tenant FKs guard
+  cross-tenant references (ADR 0006). Queries go through sqlc; `make
+  sqlc-check` is part of `check`.
+- **Audit**: writes are only possible inside `audit.Writer.InWriteTx`, which
+  inserts the audit row in the same transaction. Client IPs are stored as an
+  HMAC. There are workspace and account listings.
+- **Email** (moved from M10):
+  - pure templates and a MIME builder, fuzzed;
+  - an SMTP adapter (STARTTLS, implicit TLS, or plaintext in dev only);
+  - a River outbox with encrypted job args, enqueued in the write
+    transaction;
+  - Mailpit in dev (ADRs 0004 and 0007).
+- **Auth** (`/v1/auth/*`, `/v1/me*`):
+  - signup that creates a workspace and first brand, with
+    anti-enumeration;
+  - email verification, login with a dummy-hash timing guard, logout and
+    logout-all;
+  - password change, forgot and reset;
+  - TOTP enrolment and disable, recovery codes, and an MFA login challenge.
+
+  Passwords are argon2id (46 MiB, t=1, p=1) behind a concurrency semaphore.
+  Sessions live in Redis in `__Host-` cookies; CSRF uses stdlib
+  `CrossOriginProtection` (ADR 0005).
+- **Workspaces** (`/v1/workspaces*`, `/v1/invitations/accept`):
+  - workspaces and brands (archiving is owner only);
+  - members and per-brand roles;
+  - invitations, which are emailed, expire after 7 days, and need the
+    invited verified email to accept;
+  - the audit-log endpoint.
+
+  The pure RBAC core covers owner, admin, publisher, agent and viewer.
+  A workspace or brand you cannot see returns 404; a forbidden action in
+  your own workspace returns 403. Writes are limited to 120/min per user.
+- **Assembly**:
+  - `app.BuildAPI` serves health, auth and workspaces behind CSRF
+    protection, and `api serve` uses it.
+  - The OpenAPI spec documents all 36 operations, is Redocly-clean, and is
+    kept in sync with the router by a test.
+  - `internal/apitest` is the end-to-end HTTP test harness.
+- **Ops**:
+  - Compose wires the keyring, the SMTP settings and an opt-in
+    `smtp_password` secret.
+  - The stack smoke test gains the account flow: signup → Mailpit → verify
+    → login → brand → audit → cross-tenant 404.
+  - `docs/deployment.md` covers SES `ap-south-1`, sessions and proxies.
+
+### Verification
+
+- **`make check`**: green twice in a row.
+  - Checks: fmt, vet, sqlc-check, staticcheck, gosec (0 issues),
+    govulncheck (0 called vulnerabilities), race tests.
+  - Coverage: core 96.9%, overall 87.2% (gates: 90% and 80%).
+- **HTTP tests** (`internal/apitest`, real Postgres, River and Redis over
+  TLS). Every endpoint has:
+  - 401 without a session;
+  - 403 for an insufficient role;
+  - a cross-tenant 404;
+  - 422 validation errors and the canonical error shape;
+  - audit-row assertions.
+- **Fuzz**: `make fuzz-smoke FUZZTIME=10s` is clean across 30 targets,
+  including one per request type.
+  - It found a real bug in the email MIME builder. A non-ASCII display name
+    ending in `\` produced an unparseable `To:` header, because stdlib
+    Q-encoding leaves characters that are invalid in an atom. Fixed by
+    B-encoding; the input is kept as a corpus regression.
+- **Account flow, end to end**, against real binaries: datastores and
+  Mailpit in Compose, `api` and `worker` as host processes, because of the
+  Codespace bridge issue. 17/17 checks passed:
+  - signup → SMTP delivery to Mailpit → verify → login → create brand →
+    audit log shows `brand.create`;
+  - the owner gets 200 and a second account gets 404 on the same workspace;
+  - logout gives 401;
+  - no email addresses in the logs.
+
+  The full stack smoke test, in both modes, runs in CI (`stack-smoke`).
+- **OpenAPI**: 36 operations, Redocly-clean, with a router-sync test.
+- **Benchmarks** (2-vCPU Codespace):
+
+  | Benchmark | Time/op | Allocs/op | Notes |
+  | --- | --- | --- | --- |
+  | `core.Can` (permission check) | 98 ns | 1 | |
+  | Sliding-window `Decide` | 28 ns | 0 | |
+  | Limiter `Allow`, in-memory store | 1.4 µs | 6 | |
+  | Redis session `Get` | 119 µs | 12 | round trip to the container |
+  | Audited write envelope (`InWriteTx`, no-op body) | 0.58 ms | 60 | BEGIN, GUCs, audit insert, COMMIT |
+  | argon2id verify (production cost) | 30 ms | — | 46 MiB; `ARGON2_MAX_CONCURRENCY=4` caps memory at about 190 MiB |
+  | logx access-log record | 3.3 µs | 0 | unchanged |
+- **Test infrastructure flake, found and fixed**: 2 of 3 `make check` runs
+  failed with `wait for reaper: context deadline exceeded`.
+  - Cause: packages share one testcontainers reaper, which exits 10s after
+    its last client. The last container-using packages arrived while it was
+    exiting.
+  - Fix: `make test` sets `RYUK_RECONNECTION_TIMEOUT=5m`.
+
 ## Open questions and follow-ups
 
 1. **Codespace firewall**: Compose bridge networks are dropped by stale
-   iptables-legacy rules in this Codespace. A user-run fix is documented in
-   `docs/development.md`. Network isolation is verified on a normal Docker
-   host by the `stack-smoke` CI job (passing).
-2. **GO-2026-5932** (golang.org/x/crypto, no fix yet): currently not
-   reachable from our code. M2 imports x/crypto for argon2id. Check whether
-   the affected package is used before then.
+   iptables-legacy rules in this Codespace. A user-run fix and a
+   host-process alternative are documented in `docs/development.md`.
+   Network isolation is verified on a normal Docker host by the
+   `stack-smoke` CI job.
+2. **GO-2026-5932** (golang.org/x/crypto): resolved for M2. It affects only
+   `x/crypto/openpgp`, which we do not import; `govulncheck` reports no
+   called vulnerabilities.
 3. **S3 client for M4**: there is no S3 SDK on the allowed list. Decide
    between a stdlib SigV4 signer and an SDK (ADR).
 4. **Statement timeout** (15s) and idle-in-transaction timeout (30s) are
@@ -136,3 +252,11 @@ Delivered:
    queries.
 5. **Garage runs as uid 0** (with no capabilities) because its scratch image
    has no user that owns the volumes. Revisit if upstream adds one.
+6. **SMTP error text in River's attempt errors.** A provider reply such as
+   `550 <addr>: user unknown` can echo the recipient into `river_job.errors`.
+   Logs are redacted; the database column is not. Consider wrapping SMTP
+   errors with only their status code.
+7. **Bounces and complaints** (SES notifications) are not handled yet. They
+   belong with email preferences.
+8. **Non-browser clients** (mobile, public API) will need a bearer-token
+   scheme alongside the cookie (ADR 0005).
