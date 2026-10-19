@@ -1,0 +1,124 @@
+openapi: 3.1.0
+info:
+  title: Tuorps API
+  version: 0.1.0
+  license:
+    name: GPL-3.0-only
+    identifier: GPL-3.0-only
+  description: |
+    Social media and WhatsApp management for Indian businesses and agencies.
+
+    Conventions:
+    - Request and response bodies are JSON (`application/json; charset=utf-8`).
+      Unknown or duplicate members, trailing data and invalid UTF-8 are rejected.
+    - Every response carries `X-Request-ID`. A client-supplied UUID is honoured.
+    - Errors use one shape, `Error`, and never echo request content.
+    - List endpoints use keyset pagination (no offsets).
+servers:
+  - url: /
+    description: Same origin as the client (local Compose stack listens on 127.0.0.1:8080)
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Liveness probe
+      description: Reports that the process is up. Does not touch dependencies.
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: ok
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness probe
+      description: |
+        Runs dependency checks concurrently, each with a deadline. Failure
+        details are logged server-side and never returned.
+      tags: [health]
+      security: []
+      responses:
+        "200":
+          description: Ready to serve traffic.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: A critical dependency is unavailable.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/XRequestID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+components:
+  headers:
+    XRequestID:
+      description: Request correlation ID (UUID).
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ReadinessReport:
+      type: object
+      required: [ready, checks]
+      properties:
+        ready:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            required: [name, status]
+            properties:
+              name:
+                type: string
+                examples: [postgres]
+              status:
+                type: string
+                enum: [ok, fail]
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code.
+              examples: [not_found, method_not_allowed, invalid_json, empty_body, body_too_large, unsupported_media_type, validation_failed, internal]
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+  responses:
+    MethodNotAllowed:
+      description: Route exists but not for this method.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
