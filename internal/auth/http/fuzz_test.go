@@ -21,3 +21,19 @@ func FuzzTokenRequest(f *testing.F) {
 func FuzzEmailRequest(f *testing.F) {
 	httpxtest.FuzzDecode[emailRequest](f, `{"email":"a@example.in"}`)
 }
+
+func FuzzPasswordRequest(f *testing.F) {
+	httpxtest.FuzzDecode[passwordRequest](f, `{"password":"x"}`)
+}
+
+func FuzzCodeRequest(f *testing.F) {
+	httpxtest.FuzzDecode[codeRequest](f, `{"code":"123456"}`)
+}
+
+func FuzzSecondFactorRequest(f *testing.F) {
+	httpxtest.FuzzDecode[secondFactorRequest](f, `{"password":"x","code":"123456"}`, `{"password":"x","recovery_code":"abcde-fghij"}`)
+}
+
+func FuzzMFALoginRequest(f *testing.F) {
+	httpxtest.FuzzDecode[mfaLoginRequest](f, `{"challenge":"c","code":"123456"}`)
+}

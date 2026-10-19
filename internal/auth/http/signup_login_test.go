@@ -1,6 +1,7 @@
 package authhttp_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -202,13 +203,13 @@ func TestSignupVerifyLogin(t *testing.T) {
 	})
 
 	t.Run("rate limits", func(t *testing.T) {
-		c := e.client("198.51.100.13")
+		// Per address, independent of IP: 10 attempts a minute, from anywhere.
 		var last response
-		for range 6 {
-			last = c.post("/v1/auth/login", map[string]string{"email": "priya@example.in", "password": "not the password"})
+		for i := range 11 {
+			last = e.client(fmt.Sprintf("192.0.2.%d", 100+i)).post("/v1/auth/login", map[string]string{"email": "target@example.in", "password": "not the password"})
 		}
 		if last.Status != http.StatusTooManyRequests || last.Header.Get("Retry-After") == "" {
-			t.Errorf("6th login attempt for one address: %d", last.Status)
+			t.Errorf("11th login attempt for one address: %d", last.Status)
 		}
 		s := e.client("198.51.100.14")
 		for i := range 6 {
