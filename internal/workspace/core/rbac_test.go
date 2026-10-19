@@ -227,3 +227,24 @@ func TestPrincipalAccessors(t *testing.T) {
 		t.Error("BrandRole(B) present")
 	}
 }
+
+func TestCanOnAnyBrand(t *testing.T) {
+	cases := []struct {
+		name  string
+		owner bool
+		roles map[uuid.UUID]core.Role
+		want  bool
+	}{
+		{"owner without roles", true, nil, true},
+		{"admin of one brand", false, map[uuid.UUID]core.Role{brandA(): core.RoleViewer, brandB(): core.RoleAdmin}, true},
+		{"publisher everywhere", false, map[uuid.UUID]core.Role{brandA(): core.RolePublisher, brandB(): core.RolePublisher}, false},
+		{"no roles", false, nil, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := core.CanOnAnyBrand(principal(t, c.owner, c.roles), core.PermBrandMembersManage); got != c.want {
+				t.Errorf("CanOnAnyBrand = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
