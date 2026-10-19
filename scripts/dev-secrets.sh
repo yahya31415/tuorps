@@ -36,6 +36,9 @@ put garage_admin_token "$(hex 32)"
 put garage_access_key_id "GK$(hex 12)"
 put garage_secret_key "$(hex 32)"
 put encryption_keys "k1:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+# Placeholder: replace with the SMTP provider's password and set
+# SMTP_PASSWORD_FILE=/run/secrets/smtp_password (Mailpit needs none).
+put smtp_password "unused"
 
 # Derived values (rewritten when their inputs were).
 put database_url "postgres://tuorps_app:$(get pg_app_password)@postgres:5432/tuorps?sslmode=disable"

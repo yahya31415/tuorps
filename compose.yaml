@@ -123,7 +123,11 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_TLS: ${SMTP_TLS:-starttls}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
+      # Set to /run/secrets/smtp_password once secrets/smtp_password holds the
+      # provider's SMTP password (unset: no SMTP authentication).
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:-}
       MAIL_FROM: ${MAIL_FROM:-}
+    secrets: [database_url, redis_url, encryption_keys, smtp_password]
     build: { context: ., args: { CMD: worker } }
     command: ["serve"]
     healthcheck:
@@ -155,3 +159,4 @@ secrets:
   garage_rpc_secret: { file: ./secrets/garage_rpc_secret }
   garage_admin_token: { file: ./secrets/garage_admin_token }
   encryption_keys: { file: ./secrets/encryption_keys }
+  smtp_password: { file: ./secrets/smtp_password }
