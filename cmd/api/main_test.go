@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/yahya31415/tuorps/internal/platform/testinfra"
 )
 
@@ -130,6 +132,15 @@ func TestServeAndMigrateEndToEnd(t *testing.T) {
 		}
 		if strings.Contains(out.String(), pg.MigratorURL) {
 			t.Error("migration output leaks the database URL")
+		}
+		admin, err := pgx.Connect(t.Context(), pg.AdminURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = admin.Close(context.Background()) }()
+		var riverJob *string
+		if err := admin.QueryRow(t.Context(), "SELECT to_regclass('tuorps.river_job')::text").Scan(&riverJob); err != nil || riverJob == nil {
+			t.Errorf("migrate up did not create River's tables in schema tuorps (%v)", err)
 		}
 	})
 
