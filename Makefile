@@ -7,7 +7,7 @@ FUZZTIME ?= 10s
 COMPOSE  := docker compose -f compose.yaml -f compose.dev.yaml
 
 .DEFAULT_GOAL := help
-.PHONY: help check fmt fmt-check vet staticcheck gosec vuln test cover-gate fuzz-smoke bench \
+.PHONY: help check fmt fmt-check vet sqlc sqlc-check staticcheck gosec vuln test cover-gate fuzz-smoke bench \
 	build images up down logs smoke dev-secrets storage-init migrate-up migrate-down migrate-status red green
 
 help: ## List targets
@@ -15,7 +15,7 @@ help: ## List targets
 
 ## Quality gate (CLAUDE.md §5) ---------------------------------------------
 
-check: fmt-check vet staticcheck gosec vuln test cover-gate ## Everything CI runs; must pass before a task is done
+check: fmt-check vet sqlc-check staticcheck gosec vuln test cover-gate ## Everything CI runs; must pass before a task is done
 
 fmt: ## Format all Go code
 	gofmt -w .
@@ -25,6 +25,12 @@ fmt-check: ## Fail if any Go file is unformatted
 
 vet: ## go vet
 	$(GO) vet ./...
+
+sqlc: ## Regenerate type-safe query code from migrations/ and */queries/*.sql
+	$(TOOL) sqlc generate
+
+sqlc-check: ## Fail if generated sqlc code is stale
+	$(TOOL) sqlc diff
 
 staticcheck: ## staticcheck (pinned in tools/go.mod)
 	$(TOOL) staticcheck ./...

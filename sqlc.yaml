@@ -1,0 +1,27 @@
+# sqlc: type-safe query code (CLAUDE.md §3: parameterised SQL only).
+# Generated packages live in */sqlcgen (exempt from the TDD guard; the code
+# that uses them is not). Regenerate with `make sqlc`; CI runs `make sqlc-check`.
+version: "2"
+overrides:
+  go:
+    overrides:
+      - db_type: uuid
+        go_type: { import: uuid, type: UUID }
+      - db_type: uuid
+        nullable: true
+        go_type: { import: uuid, type: UUID, pointer: true }
+      - db_type: timestamptz
+        go_type: { import: time, type: Time }
+      - db_type: timestamptz
+        nullable: true
+        go_type: { import: time, type: Time, pointer: true }
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: internal/audit/adapters/postgres/queries
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/audit/adapters/postgres/sqlcgen
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
