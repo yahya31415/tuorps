@@ -1,0 +1,15 @@
+# Local development overlay: exposes datastores on loopback for tooling.
+# Never use in production. `make up` applies it.
+services:
+  postgres:
+    ports: ["127.0.0.1:5432:5432"]
+    networks: [backend, devhost]
+  redis:
+    ports: ["127.0.0.1:6379:6379"]
+    networks: [backend, devhost]
+  garage:
+    ports: ["127.0.0.1:3900:3900"]
+    networks: [backend, devhost]
+
+networks:
+  devhost: {} # published ports need a non-internal network

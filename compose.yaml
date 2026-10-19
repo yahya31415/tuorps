@@ -1,0 +1,145 @@
+# Tuorps stack. Production-safe base: only the API is published, and only on
+# loopback (put a TLS-terminating proxy in front). Datastores sit on an
+# internal network with no route out. Local tooling ports: compose.dev.yaml.
+name: tuorps
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: [/tmp]
+  restart: unless-stopped
+
+x-app: &app
+  <<: *hardened
+  image: tuorps-api:${TUORPS_TAG:-dev}
+  environment: &app-env
+    TUORPS_ENV: ${TUORPS_ENV:-dev}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    DATABASE_URL_FILE: /run/secrets/database_url
+    REDIS_URL_FILE: /run/secrets/redis_url
+    HTTP_ADDR: ":8080"
+    WORKER_HEALTH_ADDR: ":8081"
+  secrets: [database_url, redis_url]
+  networks: [backend, egress]
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  postgres:
+    <<: *hardened
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+    user: postgres
+    tmpfs: [/tmp, /var/run/postgresql]
+    shm_size: 256m
+    environment:
+      POSTGRES_DB: tuorps
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      TUORPS_APP_PASSWORD_FILE: /run/secrets/pg_app_password
+      TUORPS_MIGRATOR_PASSWORD_FILE: /run/secrets/pg_migrator_password
+    secrets: [postgres_password, pg_app_password, pg_migrator_password]
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "tuorps"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    <<: *hardened
+    image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+    user: redis
+    command: ["redis-server", "--aclfile", "/run/secrets/redis_acl", "--appendonly", "yes", "--dir", "/data"]
+    secrets: [redis_acl]
+    volumes: [redisdata:/data]
+    networks: [backend]
+    healthcheck:
+      # The "healthcheck" ACL user may run PING and nothing else.
+      test: ["CMD", "redis-cli", "--no-auth-warning", "--user", "healthcheck", "--pass", "x", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  garage:
+    <<: *hardened
+    image: dxflrs/garage:v2.4.1@sha256:9c96caa2612d3411acc5b0e6701fb238dbfba33e533a6d7d3d811a4b12d0d020
+    # Scratch image: the volumes are root-owned, so it runs as uid 0 with no capabilities.
+    command: ["/garage", "-c", "/etc/garage.toml", "server"]
+    secrets: [garage_rpc_secret, garage_admin_token]
+    volumes:
+      - ./deploy/garage/garage.toml:/etc/garage.toml:ro
+      - garagemeta:/var/lib/garage/meta
+      - garagedata:/var/lib/garage/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "/garage", "-c", "/etc/garage.toml", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *hardened
+    image: tuorps-api:${TUORPS_TAG:-dev}
+    build: { context: ., args: { CMD: api } }
+    command: ["migrate", "up"]
+    restart: "no"
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      MIGRATE_DATABASE_URL_FILE: /run/secrets/migrate_database_url
+    secrets: [migrate_database_url]
+    networks: [backend]
+    healthcheck: { disable: true }
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    build: { context: ., args: { CMD: api } }
+    command: ["serve"]
+    ports: ["127.0.0.1:8080:8080"]
+    healthcheck:
+      test: ["CMD", "/app/tuorps", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  worker:
+    <<: *app
+    image: tuorps-worker:${TUORPS_TAG:-dev}
+    build: { context: ., args: { CMD: worker } }
+    command: ["serve"]
+    healthcheck:
+      test: ["CMD", "/app/tuorps", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+networks:
+  backend:
+    internal: true # no route to the internet
+  egress: {}       # api/worker reach platform APIs (Meta, LinkedIn, Google)
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  garagemeta: {}
+  garagedata: {}
+
+secrets:
+  postgres_password: { file: ./secrets/postgres_password }
+  pg_app_password: { file: ./secrets/pg_app_password }
+  pg_migrator_password: { file: ./secrets/pg_migrator_password }
+  database_url: { file: ./secrets/database_url }
+  migrate_database_url: { file: ./secrets/migrate_database_url }
+  redis_url: { file: ./secrets/redis_url }
+  redis_acl: { file: ./secrets/redis_acl }
+  garage_rpc_secret: { file: ./secrets/garage_rpc_secret }
+  garage_admin_token: { file: ./secrets/garage_admin_token }
