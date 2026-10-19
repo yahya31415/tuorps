@@ -9,6 +9,8 @@ package keyring
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -38,8 +40,9 @@ type Sealed struct {
 // Keyring holds the configured keys. It is immutable and safe for
 // concurrent use.
 type Keyring struct {
-	active string
-	aeads  map[string]cipher.AEAD
+	active    string
+	activeKey []byte
+	aeads     map[string]cipher.AEAD
 }
 
 // New builds a keyring from 32-byte keys; active must be one of them.
@@ -68,11 +71,20 @@ func New(keys map[string][]byte, active string) (*Keyring, error) {
 	if _, ok := aeads[active]; !ok {
 		return nil, fmt.Errorf("%w: active key %q is not configured", ErrInvalidKeyring, active)
 	}
-	return &Keyring{active: active, aeads: aeads}, nil
+	return &Keyring{active: active, activeKey: append([]byte(nil), keys[active]...), aeads: aeads}, nil
 }
 
 // ActiveKeyID is the key that seals new records.
 func (k *Keyring) ActiveKeyID() string { return k.active }
+
+// DeriveKey returns a 32-byte subkey of the active key for one purpose
+// (HKDF-SHA256), e.g. keying the audit log's client-IP hashes. Subkeys change
+// when the active key rotates.
+func (k *Keyring) DeriveKey(purpose string) []byte {
+	// hkdf.Key fails only for lengths above 255*32 bytes; keySize is fixed at 32.
+	sub, _ := hkdf.Key(sha256.New, k.activeKey, nil, "tuorps/"+purpose, keySize)
+	return sub
+}
 
 // Seal encrypts plaintext with the active key and a fresh nonce from rand.
 func (k *Keyring) Seal(rand io.Reader, plaintext, aad []byte) (Sealed, error) {
