@@ -111,6 +111,16 @@ func NewPrincipal(user, workspace uuid.UUID, isOwner bool, brandRoles map[uuid.U
 	return Principal{userID: user, workspaceID: workspace, isOwner: isOwner, brandRoles: maps.Clone(brandRoles)}, nil
 }
 
+func (p Principal) UserID() uuid.UUID      { return p.userID }
+func (p Principal) WorkspaceID() uuid.UUID { return p.workspaceID }
+func (p Principal) IsOwner() bool          { return p.isOwner }
+
+// BrandRole returns p's role on brand, if any.
+func (p Principal) BrandRole(brand uuid.UUID) (Role, bool) {
+	r, ok := p.brandRoles[brand]
+	return r, ok
+}
+
 // Can reports whether p may perform perm (on brand, for brand-scoped
 // permissions) in its workspace.
 func Can(p Principal, perm Permission, brand uuid.UUID) bool {
