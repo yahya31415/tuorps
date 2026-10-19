@@ -206,6 +206,27 @@ func TestPropertyRoundTripAndTamperDetection(t *testing.T) {
 	}
 }
 
+func TestDeriveKey(t *testing.T) {
+	k := mustNew(t, map[string][]byte{"k1": key(1), "k2": key(2)}, "k1")
+	a := k.DeriveKey("audit-ip")
+	if len(a) != 32 {
+		t.Fatalf("len = %d", len(a))
+	}
+	if !bytes.Equal(a, k.DeriveKey("audit-ip")) {
+		t.Error("derivation is not deterministic")
+	}
+	if bytes.Equal(a, k.DeriveKey("ratelimit")) {
+		t.Error("different purposes share a key")
+	}
+	if bytes.Equal(a, key(1)) {
+		t.Error("derived key equals the master key")
+	}
+	other := mustNew(t, map[string][]byte{"k1": key(1), "k2": key(2)}, "k2")
+	if bytes.Equal(a, other.DeriveKey("audit-ip")) {
+		t.Error("derivation ignores the active key")
+	}
+}
+
 func FuzzDecode(f *testing.F) {
 	f.Add("v1.k1.AAAA")
 	f.Add("v1.2026-10.c29tZQ")
