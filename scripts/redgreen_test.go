@@ -117,6 +117,31 @@ func TestRedAcceptsCompileErrorInTargetPackage(t *testing.T) {
 	}
 }
 
+func TestRedAcceptsBrandNewPackageWithOnlyExternalTests(t *testing.T) {
+	t.Parallel()
+	dir := newModule(t)
+	writeFile(t, dir, "pkg/c/c_test.go", "package c_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/m/pkg/c\"\n)\n\nfunc TestC(t *testing.T) { c.C() }\n")
+	r := tdd(t, dir, "red", "./pkg/c", "^TestC$")
+	if r.code != 0 {
+		t.Fatalf("exit = %d, want 0\n%s", r.code, r.output())
+	}
+	if red := readRed(t, dir); !strings.Contains(red, "kind: build\n") {
+		t.Errorf(".tdd/red should record a build failure:\n%s", red)
+	}
+}
+
+func TestRedRefusesMissingFilesInAnotherPackage(t *testing.T) {
+	t.Parallel()
+	dir := newModule(t)
+	writeFile(t, dir, "pkg/d/d.go", "package d\n\nimport \"example.com/m/pkg/e\"\n\nfunc D() { e.E() }\n")
+	writeFile(t, dir, "pkg/e/e_test.go", "package e_test\n")
+	writeFile(t, dir, "pkg/d/d_test.go", "package d\n\nimport \"testing\"\n\nfunc TestD(t *testing.T) { D() }\n")
+	r := tdd(t, dir, "red", "./pkg/d", "^TestD$")
+	if r.code == 0 || !strings.Contains(r.output(), "unrelated") {
+		t.Fatalf("exit = %d, want refusal mentioning unrelated\n%s", r.code, r.output())
+	}
+}
+
 func TestGreenClearsRedOncePassing(t *testing.T) {
 	t.Parallel()
 	dir := newModule(t)
