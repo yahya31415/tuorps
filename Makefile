@@ -41,8 +41,12 @@ gosec: ## gosec security scan (pinned)
 vuln: ## govulncheck (pinned)
 	$(TOOL) govulncheck ./...
 
+# Packages share one testcontainers reaper, which exits 10s after its last
+# client leaves; a package starting in that window waits a minute and fails.
+# Tests terminate their own containers, so keep the reaper (the safety net
+# for killed runs) alive across the whole run.
 test: ## All tests with the race detector and cross-package coverage
-	$(GO) test -race -count=1 -coverpkg=./... -coverprofile=$(COVER) ./...
+	RYUK_RECONNECTION_TIMEOUT=5m $(GO) test -race -count=1 -coverpkg=./... -coverprofile=$(COVER) ./...
 
 cover-gate: ## Enforce core/ >= 90% and overall >= 80% on $(COVER)
 	@$(ROOT)/scripts/coverage-gate.sh $(COVER) 90 80
