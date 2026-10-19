@@ -35,9 +35,14 @@ func scriptPath(t *testing.T, name string) string {
 }
 
 // run executes name with args in dir, feeding stdin, with env appended to
-// the current environment.
+// the current environment. When TDD_SCRIPT_SHELL is set (CI sets it to
+// macOS's stock /bin/bash 3.2), *.sh scripts run under that shell instead
+// of their shebang.
 func run(t *testing.T, dir string, env []string, stdin string, name string, args ...string) result {
 	t.Helper()
+	if sh := os.Getenv("TDD_SCRIPT_SHELL"); sh != "" && strings.HasSuffix(name, ".sh") {
+		name, args = sh, append([]string{name}, args...)
+	}
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
