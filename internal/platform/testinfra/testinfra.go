@@ -6,6 +6,7 @@ package testinfra
 import (
 	"context"
 	"crypto/rand"
+	"log/slog"
 	"net/url"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,8 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	tcredis "github.com/testcontainers/testcontainers-go/modules/redis"
+
+	"github.com/yahya31415/tuorps/migrations"
 )
 
 const (
@@ -66,6 +69,25 @@ func StartPostgres(tb testing.TB) *Postgres {
 		MigratorURL: withUser(tb, admin, "tuorps_migrator", migratorPW),
 		AppURL:      withUser(tb, admin, "tuorps_app", appPW),
 	}
+}
+
+// MigratedPostgres is StartPostgres with every migration applied.
+func MigratedPostgres(tb testing.TB) *Postgres {
+	tb.Helper()
+	pg := StartPostgres(tb)
+	db, err := migrations.Open(pg.MigratorURL)
+	if err != nil {
+		tb.Fatalf("testinfra: open migrator: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	p, err := migrations.NewProvider(db, slog.New(slog.DiscardHandler))
+	if err != nil {
+		tb.Fatalf("testinfra: migrations: %v", err)
+	}
+	if _, err := p.Up(context.Background()); err != nil {
+		tb.Fatalf("testinfra: migrate up: %v", err)
+	}
+	return pg
 }
 
 // Redis is a running Redis server.
