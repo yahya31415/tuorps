@@ -174,6 +174,12 @@ func TestServeAndMigrateEndToEnd(t *testing.T) {
 			t.Errorf("middleware chain missing: %v", resp.Header)
 		}
 
+		resp = get(t, base+"/v1/me")
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("/v1/me without a session = %d, want 401 (auth routes mounted)", resp.StatusCode)
+		}
+		_ = resp.Body.Close()
+
 		resp = get(t, base+"/nope")
 		if resp.StatusCode != http.StatusNotFound || !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
 			t.Errorf("/nope = %d %s", resp.StatusCode, resp.Header.Get("Content-Type"))
