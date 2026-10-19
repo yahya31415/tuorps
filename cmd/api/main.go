@@ -24,8 +24,10 @@ import (
 	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
 	"github.com/yahya31415/tuorps/internal/platform/config"
 	"github.com/yahya31415/tuorps/internal/platform/httpx"
+	"github.com/yahya31415/tuorps/internal/platform/jobs"
 	"github.com/yahya31415/tuorps/internal/platform/lifecycle"
 	"github.com/yahya31415/tuorps/internal/platform/logx"
+	"github.com/yahya31415/tuorps/internal/platform/postgres"
 	"github.com/yahya31415/tuorps/migrations"
 )
 
@@ -110,7 +112,9 @@ func migrate(ctx context.Context, args []string, lookup config.Lookup, readFile 
 
 	switch action {
 	case "up":
-		_, err = p.Up(ctx)
+		if _, err = p.Up(ctx); err == nil {
+			err = migrateJobs(ctx, cfg, log)
+		}
 	case "down":
 		_, err = p.Down(ctx)
 	case "status":
@@ -125,4 +129,15 @@ func migrate(ctx context.Context, args []string, lookup config.Lookup, readFile 
 		return fmt.Errorf("migrate %s: %w", action, err)
 	}
 	return nil
+}
+
+// migrateJobs applies River's schema (the transactional job outbox) as the
+// schema owner, after the application migrations.
+func migrateJobs(ctx context.Context, cfg config.Migrate, log *slog.Logger) error {
+	pool, err := postgres.NewPool(ctx, config.DB{URL: cfg.DatabaseURL, MaxConns: 2, MaxConnLifetime: time.Hour, MaxConnIdleTime: time.Minute})
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	return jobs.Migrate(ctx, pool, log)
 }
