@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -66,6 +68,10 @@ type Config struct {
 	HTTP             HTTP
 	DB               DB
 	Redis            Redis
+	AppOrigin        *url.URL // public web origin: email links and the CSRF trusted origin
+	Auth             Auth
+	TrustedProxies   []netip.Prefix // proxies whose X-Forwarded-For is honoured
+	Encryption       Encryption
 }
 
 // FieldError describes one invalid or missing variable. Err is always a
@@ -206,6 +212,7 @@ func Load(lookup Lookup, readFile ReadFile) (Config, error) {
 	if cfg.DB.MinConns > cfg.DB.MaxConns {
 		r.fail("DB_MIN_CONNS", errMinMax)
 	}
+	r.readAuth(&cfg)
 	if len(r.errs) > 0 {
 		return Config{}, errors.Join(r.errs...)
 	}

@@ -18,9 +18,12 @@ x-app: &app
     LOG_LEVEL: ${LOG_LEVEL:-info}
     DATABASE_URL_FILE: /run/secrets/database_url
     REDIS_URL_FILE: /run/secrets/redis_url
+    ENCRYPTION_KEYS_FILE: /run/secrets/encryption_keys
+    ENCRYPTION_ACTIVE_KEY_ID: ${ENCRYPTION_ACTIVE_KEY_ID:-k1}
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
     HTTP_ADDR: ":8080"
     WORKER_HEALTH_ADDR: ":8081"
-  secrets: [database_url, redis_url]
+  secrets: [database_url, redis_url, encryption_keys]
   networks: [backend, egress]
   depends_on:
     migrate: { condition: service_completed_successfully }
@@ -143,3 +146,4 @@ secrets:
   redis_acl: { file: ./secrets/redis_acl }
   garage_rpc_secret: { file: ./secrets/garage_rpc_secret }
   garage_admin_token: { file: ./secrets/garage_admin_token }
+  encryption_keys: { file: ./secrets/encryption_keys }

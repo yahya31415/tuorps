@@ -35,6 +35,7 @@ put garage_rpc_secret "$(hex 32)"
 put garage_admin_token "$(hex 32)"
 put garage_access_key_id "GK$(hex 12)"
 put garage_secret_key "$(hex 32)"
+put encryption_keys "k1:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
 
 # Derived values (rewritten when their inputs were).
 put database_url "postgres://tuorps_app:$(get pg_app_password)@postgres:5432/tuorps?sslmode=disable"
