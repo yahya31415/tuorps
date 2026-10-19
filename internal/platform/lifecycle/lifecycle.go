@@ -39,7 +39,14 @@ func Serve(ctx context.Context, srv *http.Server, shutdownTimeout time.Duration,
 	defer cancel()
 	log.InfoContext(sctx, "shutting down", "timeout", shutdownTimeout.String())
 	if err := srv.Shutdown(sctx); err != nil {
-		return fmt.Errorf("lifecycle: shutdown: %w", err)
+		// Drain timed out: stuck requests, or connections that never sent a
+		// request (Shutdown treats those as idle only after 5s). The process
+		// is stopping either way, so close what is left and exit cleanly.
+		log.WarnContext(sctx, "graceful shutdown timed out; forced close", "err", err.Error())
+		if cerr := srv.Close(); cerr != nil {
+			return fmt.Errorf("lifecycle: forced close: %w", cerr)
+		}
+		return nil
 	}
 	log.InfoContext(sctx, "shutdown complete")
 	return nil
