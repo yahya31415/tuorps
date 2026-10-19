@@ -96,12 +96,26 @@ Delivered:
   - Inter-container networking was verified with host networking only,
     because of a Codespace iptables issue (see `docs/development.md`).
 
+## Post-M1 hardening (2026-10-19)
+
+- **TDD guard fail-open fixed.** On macOS (no `realpath -m`), or on any
+  internal error, the guard exited 1 or 5. Claude Code treats that as
+  non-blocking, so edits went through. The guard now:
+  - uses a portable lexical `normpath`;
+  - turns every unexpected exit into a block (exit 2);
+  - is verified under bash 3.2.57 with BusyBox;
+  - has its specs run in CI on macOS under `/bin/bash`.
+- **Stack smoke test** (`make smoke`, CI job `stack-smoke`): 37 end-to-end
+  checks, including network isolation. A local negative control (host
+  networking) produced exactly the 4 expected failures, with 33 passing.
+
 ## Open questions and follow-ups
 
 1. **Codespace firewall**: Compose bridge networks are dropped by stale
    iptables-legacy rules in this Codespace. A user-run fix is documented in
-   `docs/development.md`. Network isolation (`internal: true` backend) still
-   needs verifying on a normal Docker host or in CI.
+   `docs/development.md`. The `stack-smoke` CI job verifies network isolation
+   on a normal Docker host. It has **not run yet**: the branch has not been
+   pushed.
 2. **GO-2026-5932** (golang.org/x/crypto, no fix yet): currently not
    reachable from our code. M2 imports x/crypto for argon2id. Check whether
    the affected package is used before then.

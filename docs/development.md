@@ -28,6 +28,12 @@ git commit (test: …) && git commit (feat: …)
 change, even a pure refactor, needs a new failing spec, such as an
 allocation budget or a property.
 
+The scripts are portable to macOS: bash 3.2 (`/bin/bash`), BSD userland,
+no GNU `realpath`. Paths are normalised lexically by `scripts/lib/path.sh`.
+The guard **fails closed**: any unexpected error exits 2 (block), because
+Claude Code treats every other exit code as a non-blocking error. CI runs the
+guard specs on macOS under `/bin/bash` (`TDD_SCRIPT_SHELL=/bin/bash`).
+
 `make red` accepts a compile failure only when every error location is inside
 the target package, for example a test calling an undefined function or
 importing a package that does not exist yet. Errors elsewhere are refused as
@@ -38,6 +44,24 @@ importing a package that does not exist yet. Errors elsewhere are refused as
 Adapter, migration and binary tests start Postgres 18.6 and Redis 8.8 through
 testcontainers (`internal/platform/testinfra`), using the same role bootstrap
 as production. They need a Docker daemon. They never call external APIs.
+
+## Stack smoke test
+
+`make smoke` (after `make dev-secrets up storage-init`) checks the running
+stack end to end:
+
+- probes and migrations;
+- service DNS;
+- api/worker egress;
+- that postgres, redis and garage **cannot** reach the internet;
+- dev-overlay ports;
+- non-root, read-only, no-shell and no-capabilities hardening;
+- Redis ACLs and anonymous S3 refusal;
+- `/readyz` during a Redis outage;
+- secrets absent from logs;
+- graceful SIGTERM exits.
+
+The CI job `stack-smoke` runs it on a normal Docker host.
 
 ## Known environment issue: GitHub Codespaces bridge networking
 
@@ -56,4 +80,7 @@ sudo iptables-legacy -I FORWARD 1 -o br-+ -j ACCEPT
 
 Without it, the stack can be exercised with every service on
 `network_mode: host`. That checks images, secrets, healthchecks and
-migrations, but not network isolation.
+migrations, but not network isolation. In that mode `make smoke` reports
+exactly 4 failures: service DNS plus the three "cannot reach the internet"
+checks. This is the expected negative control showing the isolation checks
+detect missing isolation.
