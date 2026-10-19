@@ -3,6 +3,7 @@ package core_test
 import (
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -251,4 +252,36 @@ func FuzzMessagePipeline(f *testing.F) {
 			t.Fatalf("recipient changed: %v %v", to, err)
 		}
 	})
+}
+
+func TestMessageJSONRoundTripRevalidates(t *testing.T) {
+	m := msg(t, core.KindInvitation, map[string]string{"inviter": "Arjun", "workspace": "Kerala Spices", "link": "https://app.tuorps.in/i#token=x"})
+	b, err := m.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, err := core.ParseMessage(b)
+	if err != nil {
+		t.Fatalf("ParseMessage: %v", err)
+	}
+	if back.To() != m.To() || back.Kind() != m.Kind() || back.Locale() != m.Locale() || !maps.Equal(back.Data(), m.Data()) {
+		t.Errorf("round trip = %+v, want %+v", back, m)
+	}
+	d := back.Data()
+	d["inviter"] = "mutated"
+	if back.Data()["inviter"] != "Arjun" {
+		t.Error("Data exposes internal state")
+	}
+	for name, raw := range map[string]string{
+		"not json":      `{`,
+		"unknown kind":  `{"to":{"Name":"","Address":"p@example.in"},"kind":"spam","locale":"en","data":{}}`,
+		"injected name": `{"to":{"Name":"x\r\nBcc: e@x.in","Address":"p@example.in"},"kind":"password_changed","locale":"en","data":{"name":"x"}}`,
+		"missing data":  `{"to":{"Name":"","Address":"p@example.in"},"kind":"verify_email","locale":"en","data":{"name":"x"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := core.ParseMessage([]byte(raw)); !errors.Is(err, core.ErrInvalidMessage) {
+				t.Fatalf("err = %v", err)
+			}
+		})
+	}
 }
