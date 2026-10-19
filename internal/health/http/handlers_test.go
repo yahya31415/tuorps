@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/yahya31415/tuorps/internal/health"
-	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
 	"github.com/yahya31415/tuorps/internal/health/core"
+	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
 	"github.com/yahya31415/tuorps/internal/platform/httpx"
 )
 
