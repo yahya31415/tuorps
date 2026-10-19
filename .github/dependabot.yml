@@ -1,0 +1,18 @@
+# Dependency updates arrive as PRs and are reviewed like any other change.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories: ["/", "/tools"]
+    schedule: { interval: weekly }
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: "/"
+    schedule: { interval: weekly }
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }

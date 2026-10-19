@@ -2,7 +2,7 @@ module github.com/yahya31415/tuorps/tools
 
 go 1.27
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 tool (
 	github.com/pressly/goose/v3/cmd/goose
