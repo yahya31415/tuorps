@@ -37,3 +37,15 @@ func FuzzSecondFactorRequest(f *testing.F) {
 func FuzzMFALoginRequest(f *testing.F) {
 	httpxtest.FuzzDecode[mfaLoginRequest](f, `{"challenge":"c","code":"123456"}`)
 }
+
+func FuzzChangePasswordRequest(f *testing.F) {
+	httpxtest.FuzzDecode[changePasswordRequest](f, `{"current_password":"x","new_password":"correct horse battery staple"}`)
+}
+
+func FuzzResetPasswordRequest(f *testing.F) {
+	httpxtest.FuzzDecode[resetPasswordRequest](f, `{"token":"t","new_password":"correct horse battery staple"}`)
+}
+
+func FuzzUpdateProfileRequest(f *testing.F) {
+	httpxtest.FuzzDecode[updateProfileRequest](f, `{"name":"A","locale":"hi"}`, `{}`)
+}
