@@ -13,7 +13,16 @@ info:
       Unknown or duplicate members, trailing data and invalid UTF-8 are rejected.
     - Every response carries `X-Request-ID`. A client-supplied UUID is honoured.
     - Errors use one shape, `Error`, and never echo request content.
-    - List endpoints use keyset pagination (no offsets).
+    - List endpoints use keyset pagination (no offsets): pass the previous
+      page's `next_cursor` as `cursor`; `next_cursor` is null on the last page.
+    - Authentication is a session cookie, `__Host-tuorps_session` (Secure,
+      HttpOnly, SameSite=Lax). Cross-origin state-changing requests are
+      refused (403 `cross_origin_request`).
+    - A workspace, brand or member you cannot see is reported as 404, never 403.
+    - Writes are rate limited per user; authentication routes per client IP
+      and per email. Limited requests get 429 with `Retry-After`.
+security:
+  - session: []
 servers:
   - url: /
     description: Same origin as the client (local Compose stack listens on 127.0.0.1:8080)
@@ -72,7 +81,872 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReadinessReport"
+  /v1/auth/signup:
+    post:
+      operationId: signUp
+      summary: Create an account, workspace and first brand
+      description: |
+        Always answers 202 (no account enumeration). A verification email is sent;
+        if the address already has an account, its owner is notified instead.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/CheckEmail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/verify-email:
+    post:
+      operationId: verifyEmail
+      summary: Verify an email address with the emailed token
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/InvalidToken"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/verify-email/resend:
+    post:
+      operationId: resendVerification
+      summary: Resend the verification email
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/CheckEmail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/login:
+    post:
+      operationId: logIn
+      summary: Log in with email and password
+      description: |
+        On success without 2FA, sets the session cookie and returns the user.
+        With 2FA enabled, returns `mfa_required` and a `challenge` for `/v1/auth/login/mfa`.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/InvalidCredentials"
+        "403":
+          $ref: "#/components/responses/EmailNotVerified"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/login/mfa:
+    post:
+      operationId: logInMFA
+      summary: Complete login with a TOTP or recovery code
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MFALoginRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "401":
+          $ref: "#/components/responses/InvalidCredentials"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/logout:
+    post:
+      operationId: logOut
+      summary: End this session
+      tags: [auth]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/logout-all:
+    post:
+      operationId: logOutEverywhere
+      summary: End every session of this user
+      tags: [auth]
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/password/forgot:
+    post:
+      operationId: forgotPassword
+      summary: Email a password-reset link
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "202":
+          $ref: "#/components/responses/CheckEmail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/auth/password/reset:
+    post:
+      operationId: resetPassword
+      summary: Set a new password with the emailed token
+      description: |
+        Revokes every session of the user and sends a notice email.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "400":
+          $ref: "#/components/responses/InvalidToken"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/me:
+    get:
+      operationId: getMe
+      summary: The current user
+      tags: [me]
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      operationId: updateMe
+      summary: Update name or locale
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/password:
+    post:
+      operationId: changePassword
+      summary: Change password
+      description: |
+        Revokes the user's other sessions and sends a notice email.
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidPassword"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/mfa/totp:
+    post:
+      operationId: setUpTOTP
+      summary: Start TOTP enrolment
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TOTPSetup"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidPassword"
+        "409":
+          $ref: "#/components/responses/MFAConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      operationId: disableTOTP
+      summary: Disable TOTP
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecondFactorRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidPassword"
+        "409":
+          $ref: "#/components/responses/MFAConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/mfa/totp/confirm:
+    post:
+      operationId: confirmTOTP
+      summary: Confirm TOTP enrolment with a code
+      description: |
+        Returns ten single-use recovery codes, shown once.
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CodeRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodes"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "409":
+          $ref: "#/components/responses/MFAConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/me/mfa/recovery-codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      summary: Replace all recovery codes
+      tags: [me]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SecondFactorRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodes"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvalidPassword"
+        "409":
+          $ref: "#/components/responses/MFAConflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces:
+    get:
+      operationId: listWorkspaces
+      summary: Workspaces I belong to
+      tags: [workspaces]
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+    post:
+      operationId: createWorkspace
+      summary: Create a workspace (with a first brand)
+      tags: [workspaces]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}:
+    get:
+      operationId: getWorkspace
+      summary: A workspace
+      tags: [workspaces]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: renameWorkspace
+      summary: Rename a workspace (owner)
+      tags: [workspaces]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workspace"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/brands:
+    get:
+      operationId: listBrands
+      summary: Brands I can see
+      description: |
+        The owner sees every brand (archived included); others see brands they hold a role on.
+      tags: [brands]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrandList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createBrand
+      summary: Create a brand (owner)
+      tags: [brands]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/brands/{brand}:
+    get:
+      operationId: getBrand
+      summary: A brand
+      tags: [brands]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: renameBrand
+      summary: Rename a brand (owner or brand admin)
+      tags: [brands]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NameRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      operationId: archiveBrand
+      summary: Archive a brand (owner)
+      tags: [brands]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/brands/{brand}/members/{user}:
+    put:
+      operationId: setBrandRole
+      summary: Give a member a role on a brand
+      tags: [members]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/User"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleRequest"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+    delete:
+      operationId: removeBrandRole
+      summary: Remove a member's role on a brand
+      tags: [members]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/User"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/members:
+    get:
+      operationId: listMembers
+      summary: Workspace members (owner or any brand admin)
+      tags: [members]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/workspaces/{ws}/members/{user}:
+    delete:
+      operationId: removeMember
+      summary: Remove a member from the workspace (owner)
+      tags: [members]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/User"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/CannotRemoveOwner"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/invitations:
+    get:
+      operationId: listInvitations
+      summary: Pending invitations (owner or any brand admin)
+      tags: [invitations]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createInvitation
+      summary: Invite someone by email to brands
+      description: |
+        Admins may grant roles only on brands they administer; only the owner
+        may grant admin. The invitation is emailed and expires after 7 days.
+      tags: [invitations]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationRequest"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/InvitationRejected"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/invitations/{id}:
+    delete:
+      operationId: revokeInvitation
+      summary: Revoke a pending invitation
+      tags: [invitations]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Invitation"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/invitations/accept:
+    post:
+      operationId: acceptInvitation
+      summary: Accept an invitation
+      description: |
+        The signed-in user's verified email must match the invited address.
+      tags: [invitations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedInvitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidToken"
+        "422":
+          $ref: "#/components/responses/ValidationFailed"
+        "403":
+          $ref: "#/components/responses/InvitationEmailMismatch"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/audit-log:
+    get:
+      operationId: listAuditLog
+      summary: Workspace activity log, newest first (owner)
+      tags: [audit]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: __Host-tuorps_session
+      description: Opaque session token set by login.
+  parameters:
+    Workspace:
+      name: ws
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Brand:
+      name: brand
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    User:
+      name: user
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Invitation:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor from the previous page's `next_cursor`.
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 100, default: 50}
   headers:
     XRequestID:
       description: Request correlation ID (UUID).
@@ -98,6 +972,261 @@ components:
               status:
                 type: string
                 enum: [ok, fail]
+    NextCursor:
+      type: [string, "null"]
+      description: Cursor for the next page; null when this is the last page.
+    SignupRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, name, workspace_name]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, minLength: 12, maxLength: 128}
+        name: {type: string, maxLength: 100}
+        workspace_name: {type: string, minLength: 1, maxLength: 100}
+    TokenRequest:
+      type: object
+      additionalProperties: false
+      required: [token]
+      properties:
+        token: {type: string, maxLength: 128}
+    EmailRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: {type: string, maxLength: 254}
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email: {type: string, maxLength: 254}
+        password: {type: string, maxLength: 128}
+    MFALoginRequest:
+      type: object
+      additionalProperties: false
+      required: [challenge]
+      description: Exactly one of `code` and `recovery_code`.
+      properties:
+        challenge: {type: string, maxLength: 128}
+        code: {type: string, maxLength: 16}
+        recovery_code: {type: string, maxLength: 32}
+    LoginResponse:
+      oneOf:
+        - type: object
+          required: [user]
+          properties:
+            user: {$ref: "#/components/schemas/User"}
+        - type: object
+          required: [mfa_required, challenge]
+          properties:
+            mfa_required: {type: boolean, const: true}
+            challenge: {type: string}
+    User:
+      type: object
+      required: [id, email, name, locale, email_verified, mfa_enabled]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string}
+        name: {type: string}
+        locale: {type: string, examples: [en]}
+        email_verified: {type: boolean}
+        mfa_enabled: {type: boolean}
+    UpdateProfileRequest:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: {type: string, maxLength: 100}
+        locale: {type: string}
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [current_password, new_password]
+      properties:
+        current_password: {type: string, maxLength: 128}
+        new_password: {type: string, minLength: 12, maxLength: 128}
+    ResetPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [token, new_password]
+      properties:
+        token: {type: string, maxLength: 128}
+        new_password: {type: string, minLength: 12, maxLength: 128}
+    PasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password: {type: string, maxLength: 128}
+    CodeRequest:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: {type: string, maxLength: 16}
+    SecondFactorRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      description: The password plus exactly one of `code` and `recovery_code`.
+      properties:
+        password: {type: string, maxLength: 128}
+        code: {type: string, maxLength: 16}
+        recovery_code: {type: string, maxLength: 32}
+    TOTPSetup:
+      type: object
+      required: [secret, otpauth_uri]
+      properties:
+        secret: {type: string, description: Base32 secret for manual entry.}
+        otpauth_uri: {type: string, description: "otpauth:// URI for a QR code."}
+    RecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items: {type: string}
+          minItems: 10
+          maxItems: 10
+    NameRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: {type: string, minLength: 1, maxLength: 100}
+    Workspace:
+      type: object
+      required: [id, name, is_owner, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        is_owner: {type: boolean}
+        created_at: {type: string, format: date-time}
+    WorkspaceList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Workspace"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    Brand:
+      type: object
+      required: [id, name, archived, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        archived: {type: boolean}
+        created_at: {type: string, format: date-time}
+    BrandList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Brand"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    Role:
+      type: string
+      enum: [admin, publisher, agent, viewer]
+      description: |
+        admin manages the brand and its members; publisher creates and
+        publishes content; agent works the inbox; viewer reads. The
+        workspace owner implicitly holds every permission.
+    BrandRole:
+      type: object
+      additionalProperties: false
+      required: [brand_id, role]
+      properties:
+        brand_id: {type: string, format: uuid}
+        role: {$ref: "#/components/schemas/Role"}
+    RoleRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role: {$ref: "#/components/schemas/Role"}
+    Member:
+      type: object
+      required: [user_id, name, email, is_owner, joined_at, roles]
+      properties:
+        user_id: {type: string, format: uuid}
+        name: {type: string}
+        email: {type: string}
+        is_owner: {type: boolean}
+        joined_at: {type: string, format: date-time}
+        roles:
+          type: array
+          items: {$ref: "#/components/schemas/BrandRole"}
+    MemberList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Member"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    InvitationRequest:
+      type: object
+      additionalProperties: false
+      required: [email, grants]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        grants:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: One role per brand; each brand at most once.
+          items: {$ref: "#/components/schemas/BrandRole"}
+    Invitation:
+      type: object
+      required: [id, email, grants, invited_by, expires_at, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        email: {type: string}
+        grants:
+          type: array
+          items: {$ref: "#/components/schemas/BrandRole"}
+        invited_by: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+    InvitationList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Invitation"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    AcceptedInvitation:
+      type: object
+      required: [workspace_id]
+      properties:
+        workspace_id: {type: string, format: uuid}
+    AuditEntry:
+      type: object
+      required: [id, actor_user_id, action, target_type, target_id, request_id, details, at]
+      properties:
+        id: {type: string, format: uuid}
+        actor_user_id: {type: [string, "null"], format: uuid}
+        action: {type: string, examples: [brand.create, member.role_set]}
+        target_type: {type: string}
+        target_id: {type: string}
+        request_id: {type: string}
+        details:
+          type: object
+          additionalProperties: {type: string}
+        at: {type: string, format: date-time}
+    AuditList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/AuditEntry"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
     Error:
       type: object
       required: [error]
@@ -109,7 +1238,7 @@ components:
             code:
               type: string
               description: Stable machine-readable code.
-              examples: [not_found, method_not_allowed, invalid_json, empty_body, body_too_large, unsupported_media_type, validation_failed, internal]
+              examples: [not_found, method_not_allowed, invalid_json, empty_body, body_too_large, unsupported_media_type, validation_failed, unauthenticated, forbidden, rate_limited, internal]
             message:
               type: string
             request_id:
@@ -122,3 +1251,184 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    NoContent:
+      description: Done.
+    CheckEmail:
+      description: Accepted; check your inbox. Returned whether or not the address has an account.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [status]
+            properties:
+              status: {type: string, const: check_email}
+    BadRequest:
+      description: Malformed body (invalid_json, empty_body, body_too_large) or unsupported_media_type.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invalid_json, message: "…"}
+    InvalidPage:
+      description: Malformed cursor or limit (invalid_page).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invalid_page, message: "…"}
+    InvalidToken:
+      description: The token is invalid, used or expired (invalid_token), or the body is malformed (invalid_json, empty_body, body_too_large).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invalid_token, message: "…"}
+    Unauthorized:
+      description: No valid session (unauthenticated).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: unauthenticated, message: "…"}
+    Forbidden:
+      description: Your role does not allow this (forbidden), or a cross-origin request (cross_origin_request).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: forbidden, message: "…"}
+    NotFound:
+      description: Not found, or not visible to you (not_found).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: not_found, message: "…"}
+    Conflict:
+      description: The name is already used by an active item (name_taken).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: name_taken, message: "…"}
+    CannotRemoveOwner:
+      description: The workspace owner cannot be removed (cannot_remove_owner).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: cannot_remove_owner, message: "…"}
+    ValidationFailed:
+      description: The body is well-formed but invalid (validation_failed).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: validation_failed, message: "…"}
+    InvitationRejected:
+      description: Invalid grants (validation_failed) or a brand that is not an active brand of this workspace (unknown_brand).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: unknown_brand, message: "…"}
+    InvitationEmailMismatch:
+      description: The invitation is for another address, or your email is unverified (invitation_email_mismatch).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invitation_email_mismatch, message: "…"}
+    InvalidCredentials:
+      description: Wrong email, password or code (invalid_credentials, invalid_code, challenge_invalid).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invalid_credentials, message: "…"}
+    EmailNotVerified:
+      description: The email address is not verified yet (email_not_verified).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: email_not_verified, message: "…"}
+    InvalidPassword:
+      description: The current password is wrong (invalid_password).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: invalid_password, message: "…"}
+    MFAConflict:
+      description: Two-factor state does not allow this (mfa_already_enabled, mfa_not_enabled, no_pending_setup) — or, on confirm, a wrong code (400 invalid_code).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: mfa_not_enabled, message: "…"}
+    RateLimited:
+      description: Too many requests (rate_limited).
+      headers:
+        Retry-After:
+          description: Seconds to wait.
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: The rate limiter is unavailable; authentication fails closed (rate_limiter_unavailable).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: rate_limiter_unavailable, message: "…"}

@@ -20,8 +20,6 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/yahya31415/tuorps/internal/app"
-	"github.com/yahya31415/tuorps/internal/health"
-	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
 	"github.com/yahya31415/tuorps/internal/platform/config"
 	"github.com/yahya31415/tuorps/internal/platform/httpx"
 	"github.com/yahya31415/tuorps/internal/platform/jobs"
@@ -76,15 +74,11 @@ func serve(ctx context.Context, lookup config.Lookup, readFile config.ReadFile, 
 	}
 	defer func() { _ = deps.Close() }()
 
-	h := httpx.Chain(newRouter(deps.Checks(), cfg.ReadinessTimeout, log), app.Middleware(cfg, log)...)
-	return lifecycle.Serve(ctx, httpx.NewServer(cfg.HTTPAddr, h, cfg.HTTP, log), cfg.ShutdownTimeout, log)
-}
-
-// newRouter registers every API route.
-func newRouter(checks []health.NamedCheck, readinessTimeout time.Duration, log *slog.Logger) *httpx.Router {
-	rt := httpx.NewRouter()
-	healthhttp.Register(rt, checks, readinessTimeout, log)
-	return rt
+	built, err := app.BuildAPI(cfg, deps, log)
+	if err != nil {
+		return err
+	}
+	return lifecycle.Serve(ctx, httpx.NewServer(cfg.HTTPAddr, built.Handler, cfg.HTTP, log), cfg.ShutdownTimeout, log)
 }
 
 func migrate(ctx context.Context, args []string, lookup config.Lookup, readFile config.ReadFile, stdout io.Writer) error {
