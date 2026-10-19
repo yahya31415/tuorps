@@ -116,6 +116,14 @@ services:
   worker:
     <<: *app
     image: tuorps-worker:${TUORPS_TAG:-dev}
+    environment:
+      <<: *app-env
+      # Outgoing email (provider-agnostic SMTP; see docs/deployment.md).
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_TLS: ${SMTP_TLS:-starttls}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     build: { context: ., args: { CMD: worker } }
     command: ["serve"]
     healthcheck:

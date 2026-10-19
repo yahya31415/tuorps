@@ -88,6 +88,9 @@ jobs:
     # unpublished), then with the dev overlay (ports published on loopback).
     runs-on: ubuntu-24.04
     env:
+      # Production config needs SMTP settings; nothing is sent during the smoke test.
+      SMTP_HOST: smtp.example.invalid
+      MAIL_FROM: Tuorps CI <no-reply@tuorps.example>
       PROD: docker compose -f compose.yaml
       DEV: docker compose -f compose.yaml -f compose.dev.yaml
     steps:
