@@ -21,7 +21,16 @@ pkg_dir() {
 	realpath -m -- "$p"
 }
 
-# compile_errors_outside <pkg> <output>: print compile-error files not under the package dir.
+# error_locations <output>: one file path per build error. A package with no
+# non-test files (a brand-new package under test) is reported as <dir>/_.
+error_locations() {
+	{
+		grep -oE '^[^[:space:]:]+\.go:[0-9]+(:[0-9]+)?:' <<<"$1" | sed -E 's/:[0-9]+(:[0-9]+)?:$//'
+		sed -nE 's/^.*: no non-test Go files in (.+)$/\1\/_/p' <<<"$1"
+	} | sort -u
+}
+
+# compile_errors_outside <pkg> <output>: print error locations not under the package dir.
 compile_errors_outside() {
 	local pkg="$1" out="$2" dir recursive=0 file abs
 	dir="$(pkg_dir "$pkg")"
@@ -34,7 +43,7 @@ compile_errors_outside() {
 			[[ "$(dirname -- "$abs")" == "$dir" ]] && continue
 		fi
 		printf '%s\n' "$file"
-	done < <(grep -oE '^[^[:space:]:]+\.go:[0-9]+(:[0-9]+)?:' <<<"$out" | sed -E 's/:[0-9]+(:[0-9]+)?:$//' | sort -u)
+	done < <(error_locations "$out")
 }
 
 red() {
@@ -61,7 +70,7 @@ red() {
 			die "refusing to record red: unrelated compile error outside $pkg in:
 $outside"
 		fi
-		if ! grep -qE '^[^[:space:]:]+\.go:[0-9]+' <<<"$out"; then
+		if [[ -z "$(error_locations "$out")" ]]; then
 			die "refusing to record red: build failed without a locatable compile error."
 		fi
 	fi
