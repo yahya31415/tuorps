@@ -95,6 +95,7 @@ func TestWorkerServesHealthAndShutsDown(t *testing.T) {
 	}
 	_ = resp.Body.Close()
 
+	http.DefaultClient.CloseIdleConnections() // no spare connections to wait out
 	cancel()
 	select {
 	case err := <-done:

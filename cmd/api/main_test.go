@@ -164,6 +164,9 @@ func TestServeAndMigrateEndToEnd(t *testing.T) {
 		}
 		_ = resp.Body.Close()
 
+		// Drop the client's pooled connections (including any spare it dialed
+		// but never used) so the drain below is fully graceful.
+		http.DefaultClient.CloseIdleConnections()
 		cancel()
 		select {
 		case err := <-done:
