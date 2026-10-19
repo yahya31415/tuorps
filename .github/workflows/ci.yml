@@ -83,19 +83,29 @@ jobs:
           TDD_SCRIPT_SHELL: /bin/bash
 
   stack-smoke:
-    # Brings the real Compose stack up on a normal Docker host and checks
-    # networking (service DNS, egress, internal isolation), hardening,
-    # readiness under an outage, log hygiene and graceful shutdown.
+    # Brings the real Compose stack up on a normal Docker host, first in the
+    # production configuration (compose.yaml only: datastores isolated and
+    # unpublished), then with the dev overlay (ports published on loopback).
     runs-on: ubuntu-24.04
+    env:
+      PROD: docker compose -f compose.yaml
+      DEV: docker compose -f compose.yaml -f compose.dev.yaml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { persist-credentials: false }
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - run: make dev-secrets up
-      - run: make storage-init
-      - run: make smoke
+      - run: make dev-secrets
+      - name: Production config up
+        run: $PROD up -d --build --wait
+      - run: COMPOSE="$PROD" scripts/storage-init.sh
+      - name: Smoke (production config)
+        run: COMPOSE="$PROD" scripts/stack-smoke.sh
+      - name: Dev overlay up
+        run: make up
+      - name: Smoke (dev overlay)
+        run: make smoke
       - name: Stack logs on failure
         if: failure()
-        run: docker compose -f compose.yaml -f compose.dev.yaml logs --no-color
+        run: $DEV logs --no-color
       - if: always()
-        run: docker compose -f compose.yaml -f compose.dev.yaml down -v
+        run: $DEV down -v
