@@ -118,6 +118,11 @@ func Register(rt *httpx.Router, d Deps) error {
 	rt.Handle("POST /v1/me/mfa/totp/confirm", authed(http.HandlerFunc(h.confirmTOTP)))
 	rt.Handle("DELETE /v1/me/mfa/totp", authed(http.HandlerFunc(h.disableTOTP)))
 	rt.Handle("POST /v1/me/mfa/recovery-codes", authed(http.HandlerFunc(h.regenerateRecoveryCodes)))
+	rt.Handle("POST /v1/me/password", authed(http.HandlerFunc(h.changePassword)))
+	rt.Handle("PATCH /v1/me", authed(http.HandlerFunc(h.updateProfile)))
+	rt.Handle("POST /v1/auth/logout-all", authed(http.HandlerFunc(h.logoutAll)))
+	rt.HandleFunc("POST /v1/auth/password/forgot", h.forgotPassword)
+	rt.HandleFunc("POST /v1/auth/password/reset", h.resetPassword)
 	return nil
 }
 
