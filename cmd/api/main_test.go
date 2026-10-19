@@ -22,6 +22,9 @@ func lookupFrom(kv map[string]string) func(string) (string, bool) {
 
 func noFiles(string) ([]byte, error) { return nil, fs.ErrNotExist }
 
+// testKeys is a valid keyring document with one key, "k1".
+const testKeys = "k1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+
 // syncBuffer is a goroutine-safe log sink.
 type syncBuffer struct {
 	mu  sync.Mutex
@@ -133,10 +136,12 @@ func TestServeAndMigrateEndToEnd(t *testing.T) {
 	t.Run("serve answers probes then shuts down gracefully", func(t *testing.T) {
 		addr := freeAddr(t)
 		env := lookupFrom(map[string]string{
-			"DATABASE_URL":     pg.AppURL,
-			"REDIS_URL":        rd.URL,
-			"HTTP_ADDR":        addr,
-			"SHUTDOWN_TIMEOUT": "5s",
+			"DATABASE_URL":             pg.AppURL,
+			"ENCRYPTION_KEYS":          testKeys,
+			"ENCRYPTION_ACTIVE_KEY_ID": "k1",
+			"REDIS_URL":                rd.URL,
+			"HTTP_ADDR":                addr,
+			"SHUTDOWN_TIMEOUT":         "5s",
 		})
 		ctx, cancel := context.WithCancel(t.Context())
 		logs := &syncBuffer{}
@@ -187,7 +192,8 @@ func TestServeAndMigrateEndToEnd(t *testing.T) {
 	})
 
 	t.Run("serve fails fast when a dependency is unreachable", func(t *testing.T) {
-		env := lookupFrom(map[string]string{"DATABASE_URL": "postgres://u:p@127.0.0.1:1/db", "REDIS_URL": rd.URL, "HTTP_ADDR": freeAddr(t)})
+		env := lookupFrom(map[string]string{"DATABASE_URL": "postgres://u:p@127.0.0.1:1/db", "REDIS_URL": rd.URL, "HTTP_ADDR": freeAddr(t),
+			"ENCRYPTION_KEYS": testKeys, "ENCRYPTION_ACTIVE_KEY_ID": "k1"})
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		if err := run(ctx, []string{"serve"}, env, noFiles, new(bytes.Buffer)); err == nil {

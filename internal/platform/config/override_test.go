@@ -19,8 +19,10 @@ func with(extra map[string]string) map[string]string {
 
 func TestLoadReadsSecretsFromFiles(t *testing.T) {
 	kv := map[string]string{
-		"DATABASE_URL_FILE": "/run/secrets/database_url",
-		"REDIS_URL_FILE":    "/run/secrets/redis_url",
+		"DATABASE_URL_FILE":        "/run/secrets/database_url",
+		"REDIS_URL_FILE":           "/run/secrets/redis_url",
+		"ENCRYPTION_KEYS":          testKeys,
+		"ENCRYPTION_ACTIVE_KEY_ID": "k1",
 	}
 	fs := map[string]string{
 		"/run/secrets/database_url": "postgres://app:filepw@db/tuorps\n",
@@ -69,7 +71,6 @@ func TestLoadOverrides(t *testing.T) {
 		get        func(config.Config) any
 		want       any
 	}{
-		{"TUORPS_ENV", "prod", func(c config.Config) any { return c.Env }, config.EnvProd},
 		{"HTTP_ADDR", "127.0.0.1:9000", func(c config.Config) any { return c.HTTPAddr }, "127.0.0.1:9000"},
 		{"WORKER_HEALTH_ADDR", ":9001", func(c config.Config) any { return c.WorkerHealthAddr }, ":9001"},
 		{"LOG_LEVEL", "debug", func(c config.Config) any { return c.LogLevel }, slog.LevelDebug},
@@ -103,6 +104,16 @@ func TestLoadOverrides(t *testing.T) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLoadProdWithItsRequiredSettings(t *testing.T) {
+	cfg, err := config.Load(env(with(map[string]string{"TUORPS_ENV": "prod", "APP_ORIGIN": "https://app.tuorps.in"})), files(nil))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Env != config.EnvProd {
+		t.Errorf("Env = %v", cfg.Env)
 	}
 }
 

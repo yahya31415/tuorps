@@ -69,10 +69,12 @@ func TestWorkerServesHealthAndShutsDown(t *testing.T) {
 	rd := testinfra.StartRedis(t)
 	addr := freeAddr(t)
 	env := lookupFrom(map[string]string{
-		"DATABASE_URL":       pg.AppURL,
-		"REDIS_URL":          rd.URL,
-		"WORKER_HEALTH_ADDR": addr,
-		"HTTP_ADDR":          freeAddr(t),
+		"DATABASE_URL":             pg.AppURL,
+		"ENCRYPTION_KEYS":          "k1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+		"ENCRYPTION_ACTIVE_KEY_ID": "k1",
+		"REDIS_URL":                rd.URL,
+		"WORKER_HEALTH_ADDR":       addr,
+		"HTTP_ADDR":                freeAddr(t),
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	logs := &syncBuffer{}

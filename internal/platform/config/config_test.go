@@ -30,10 +30,15 @@ func files(kv map[string]string) config.ReadFile {
 	}
 }
 
+// testKeys is a valid keyring document: one 32-byte key (all 0x01).
+const testKeys = "k1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+
 func minimal() map[string]string {
 	return map[string]string{
-		"DATABASE_URL": "postgres://app:pw@db:5432/tuorps",
-		"REDIS_URL":    "redis://:pw@redis:6379/0",
+		"DATABASE_URL":             "postgres://app:pw@db:5432/tuorps",
+		"REDIS_URL":                "redis://:pw@redis:6379/0",
+		"ENCRYPTION_KEYS":          testKeys,
+		"ENCRYPTION_ACTIVE_KEY_ID": "k1",
 	}
 }
 
