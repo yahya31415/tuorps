@@ -25,3 +25,12 @@ sql:
         out: internal/audit/adapters/postgres/sqlcgen
         sql_package: pgx/v5
         emit_pointers_for_null_types: true
+  - engine: postgresql
+    schema: migrations
+    queries: internal/auth/adapters/postgres/queries
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/auth/adapters/postgres/sqlcgen
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
