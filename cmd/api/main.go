@@ -17,21 +17,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
-	"github.com/redis/go-redis/v9"
 
+	"github.com/yahya31415/tuorps/internal/app"
 	"github.com/yahya31415/tuorps/internal/health"
-	"github.com/yahya31415/tuorps/internal/health/adapters"
 	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
-	"github.com/yahya31415/tuorps/internal/platform/clock"
 	"github.com/yahya31415/tuorps/internal/platform/config"
 	"github.com/yahya31415/tuorps/internal/platform/httpx"
-	"github.com/yahya31415/tuorps/internal/platform/ids"
 	"github.com/yahya31415/tuorps/internal/platform/lifecycle"
 	"github.com/yahya31415/tuorps/internal/platform/logx"
-	"github.com/yahya31415/tuorps/internal/platform/postgres"
-	"github.com/yahya31415/tuorps/internal/platform/redisx"
 	"github.com/yahya31415/tuorps/migrations"
 )
 
@@ -73,41 +67,22 @@ func serve(ctx context.Context, lookup config.Lookup, readFile config.ReadFile, 
 	if err != nil {
 		return err
 	}
-	log := logx.New(stdout, cfg.LogLevel)
-
-	pool, err := postgres.NewPool(ctx, cfg.DB)
+	log := logx.New(stdout, cfg.LogLevel).With("component", "api")
+	deps, err := app.Open(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
-	rdb, err := redisx.NewClient(ctx, cfg.Redis)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rdb.Close() }()
+	defer func() { _ = deps.Close() }()
 
-	rt := newRouter(checks(pool, rdb), cfg.ReadinessTimeout, log)
-	h := httpx.Chain(rt,
-		httpx.RequestID(ids.System()),
-		httpx.AccessLog(log, clock.System()),
-		httpx.Recover(log),
-		httpx.SecurityHeaders(cfg.Env == config.EnvProd),
-		httpx.BodyLimit(cfg.HTTP.MaxBodyBytes),
-	)
+	h := httpx.Chain(newRouter(deps.Checks(), cfg.ReadinessTimeout, log), app.Middleware(cfg, log)...)
 	return lifecycle.Serve(ctx, httpx.NewServer(cfg.HTTPAddr, h, cfg.HTTP, log), cfg.ShutdownTimeout, log)
 }
 
+// newRouter registers every API route.
 func newRouter(checks []health.NamedCheck, readinessTimeout time.Duration, log *slog.Logger) *httpx.Router {
 	rt := httpx.NewRouter()
 	healthhttp.Register(rt, checks, readinessTimeout, log)
 	return rt
-}
-
-func checks(pool *pgxpool.Pool, rdb *redis.Client) []health.NamedCheck {
-	return []health.NamedCheck{
-		{Name: "postgres", Critical: true, Run: adapters.PostgresCheck(pool)},
-		{Name: "redis", Critical: true, Run: adapters.RedisCheck(rdb)},
-	}
 }
 
 func migrate(ctx context.Context, args []string, lookup config.Lookup, readFile config.ReadFile, stdout io.Writer) error {
