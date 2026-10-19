@@ -11,6 +11,12 @@
 # must publish no datastore ports and the datastores must have no route to
 # the internet.
 #
+# The account flow signs up through the API. With the dev overlay it then
+# reads the verification email from Mailpit and walks the whole tenancy
+# path (verify, log in, create a brand, read the audit log, and a second
+# account is refused the first workspace). The production config has no
+# mail catcher, so it stops at "signed up but not yet verified".
+#
 # Network checks run a pinned BusyBox inside each service's own network
 # namespace (--network container:<id>) and use TCP connects to IP literals,
 # because Docker's embedded DNS does not answer containers that join another
@@ -20,6 +26,7 @@ set -uo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 compose="${COMPOSE:-docker compose -f $root/compose.yaml -f $root/compose.dev.yaml}"
 api="${API_URL:-http://127.0.0.1:8080}"
+mailpit="${MAILPIT_URL:-http://127.0.0.1:8025}"
 probe_image="busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e"
 internet_ips="1.1.1.1 8.8.8.8" # any one reachable on port 80 or 53 means egress
 
@@ -75,6 +82,47 @@ has_egress() {
 }
 tcp_open() { timeout 5 bash -c "exec 3<>/dev/tcp/$1/$2"; }
 json_404() { curl -s -D - -o /dev/null "$api/nope" | grep -qi '^content-type: application/json'; }
+
+# call METHOD PATH [JSON] [COOKIE]: prints "<status> <body>" from the API.
+call() {
+	local args=(-s -X "$1" -w '\n%{http_code}' "$api$2")
+	[ -n "${3:-}" ] && args+=(-H 'Content-Type: application/json' --data "$3")
+	[ -n "${4:-}" ] && args+=(-H "Cookie: $4")
+	local res
+	res="$(curl "${args[@]}")" || return 1
+	printf '%s %s\n' "${res##*$'\n'}" "${res%$'\n'*}"
+}
+# expect WANT METHOD PATH [JSON] [COOKIE]: the response status is WANT.
+expect() {
+	local want="$1"
+	shift
+	local res
+	res="$(call "$@")" || return 1
+	echo "$res"
+	[ "${res%% *}" = "$want" ]
+}
+# signup EMAIL WORKSPACE
+signup() { expect 202 POST /v1/auth/signup "$(jq -nc --arg e "$1" --arg w "$2" '{email:$e,password:"smoke test passphrase 1",name:"Smoke",workspace_name:$w}')"; }
+# login EMAIL: prints the session cookie ("name=value").
+login() {
+	curl -s -D - -o /dev/null -H 'Content-Type: application/json' \
+		--data "$(jq -nc --arg e "$1" '{email:$e,password:"smoke test passphrase 1"}')" "$api/v1/auth/login" |
+		tr -d '\r' | sed -n 's/^[Ss]et-[Cc]ookie: \(__Host-tuorps_session=[^;]*\).*/\1/p'
+}
+# mail_token EMAIL: waits for the newest email to EMAIL in Mailpit and
+# prints the token from its link.
+mail_token() {
+	local id tok
+	for _ in $(seq 1 30); do
+		id="$(curl -s "$mailpit/api/v1/search?query=$(jq -rn --arg q "to:\"$1\"" '$q|@uri')" | jq -r '.messages[0].ID // empty')"
+		if [ -n "$id" ]; then
+			tok="$(curl -s "$mailpit/api/v1/message/$id" | jq -r '.Text' | grep -o 'token=[A-Za-z0-9_-]*' | head -n1)"
+			[ -n "$tok" ] && echo "${tok#token=}" && return 0
+		fi
+		sleep 1
+	done
+	return 1
+}
 published() { [ -n "$(docker inspect -f '{{range $p, $b := .HostConfig.PortBindings}}{{$p}} {{end}}' "$(cid "$1")")" ]; }
 
 docker pull -q "$probe_image" >/dev/null
@@ -123,6 +171,39 @@ check "redis app user cannot FLUSHALL" bash -c "$compose exec -T redis redis-cli
 garage_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$(cid garage)" | awk '{print $1}')"
 check "garage refuses anonymous S3 access (from the api's network)" \
 	bash -c "docker run --rm --network container:$(cid api) $probe_image wget -S -q -O /dev/null http://$garage_ip:3900/tuorps-media/ 2>&1 | grep -q '403'"
+
+echo "== account flow"
+run_id="$(date +%s)-$$"
+owner="smoke-owner-$run_id@example.com"
+outsider="smoke-outsider-$run_id@example.com"
+check "signup is accepted (202)" signup "$owner" "Smoke $run_id"
+check "login before verification is refused (403 email_not_verified)" \
+	bash -c "$(declare -f call expect); api='$api'; expect 403 POST /v1/auth/login '{\"email\":\"$owner\",\"password\":\"smoke test passphrase 1\"}' | grep -q email_not_verified"
+check "the API needs a session (401 without one)" expect 401 GET /v1/workspaces
+if [ "$mode" = dev ]; then
+	token="$(mail_token "$owner")"
+	check "the worker delivered the verification email to Mailpit" test -n "$token"
+	check "the emailed token verifies the address (204)" expect 204 POST /v1/auth/verify-email "$(jq -nc --arg t "$token" '{token:$t}')"
+	cookie="$(login "$owner")"
+	check "verified owner logs in (session cookie set)" test -n "$cookie"
+	ws="$(call GET /v1/workspaces "" "$cookie" | cut -d' ' -f2- | jq -r '.items[0].id // empty')"
+	check "signup created the owner's workspace" test -n "$ws"
+	check "owner creates a brand (201)" expect 201 POST "/v1/workspaces/$ws/brands" '{"name":"Smoke Brand"}' "$cookie"
+	check "audit log records the brand creation" \
+		bash -c "$(declare -f call); api='$api'; call GET '/v1/workspaces/$ws/audit-log' '' '$cookie' | cut -d' ' -f2- | jq -e '.items[0].action == \"brand.create\"'"
+	check "second signup is accepted (202)" signup "$outsider" "Outsider $run_id"
+	token="$(mail_token "$outsider")"
+	check "second account verifies" expect 204 POST /v1/auth/verify-email "$(jq -nc --arg t "$token" '{token:$t}')"
+	other="$(login "$outsider")"
+	check "second account logs in" test -n "$other"
+	check "owner can read the workspace (200)" expect 200 GET "/v1/workspaces/$ws" "" "$cookie"
+	check "second account cannot see the first workspace (404)" expect 404 GET "/v1/workspaces/$ws" "" "$other"
+	check "second account cannot list the first workspace's brands (404)" expect 404 GET "/v1/workspaces/$ws/brands" "" "$other"
+	check "api and worker logs contain no email addresses" bash -c "! $compose logs api worker 2>&1 | grep -qF -e '$owner' -e '$outsider'"
+	check "logout ends the session (then 401)" bash -c "$(declare -f call expect); api='$api'; expect 204 POST /v1/auth/logout '' '$cookie' && expect 401 GET /v1/workspaces '' '$cookie'"
+else
+	echo "skip  email delivery and the verified flow: the production config has no mail catcher"
+fi
 
 echo "== readiness under a dependency outage"
 dc stop redis >/dev/null 2>&1
