@@ -68,8 +68,8 @@ type Config struct {
 	Redis            Redis
 }
 
-// FieldError describes one invalid or missing variable. It never contains
-// the variable's value.
+// FieldError describes one invalid or missing variable. Err is always a
+// fixed sentinel, so the message never contains the variable's value.
 type FieldError struct {
 	Key string
 	Err error
@@ -78,49 +78,116 @@ type FieldError struct {
 func (e *FieldError) Error() string { return fmt.Sprintf("config: %s: %v", e.Key, e.Err) }
 func (e *FieldError) Unwrap() error { return e.Err }
 
-// Load builds a Config, reporting every problem at once via errors.Join.
-func Load(lookup Lookup, _ ReadFile) (Config, error) {
-	var errs []error
-	secret := func(key string) Secret {
-		v, ok := lookup(key)
-		if !ok || strings.TrimSpace(v) == "" {
-			errs = append(errs, &FieldError{Key: key, Err: ErrMissing})
+// Is lets every specific invalid-value sentinel match ErrInvalid.
+func (e *FieldError) Is(target error) bool { return target == ErrInvalid && isInvalid(e.Err) }
+
+// reader accumulates field errors while reading variables.
+type reader struct {
+	lookup   Lookup
+	readFile ReadFile
+	errs     []error
+}
+
+func (r *reader) fail(key string, err error) {
+	r.errs = append(r.errs, &FieldError{Key: key, Err: err})
+}
+
+// raw returns the trimmed value of key, if set and non-blank.
+func (r *reader) raw(key string) (string, bool) {
+	v, ok := r.lookup(key)
+	v = strings.TrimSpace(v)
+	return v, ok && v != ""
+}
+
+// secret reads key directly or from the file named by key_FILE.
+func (r *reader) secret(key string) Secret {
+	v, direct := r.raw(key)
+	path, viaFile := r.raw(key + "_FILE")
+	switch {
+	case direct && viaFile:
+		r.fail(key, ErrConflict)
+	case direct:
+		return NewSecret(v)
+	case viaFile:
+		b, err := r.readFile(path)
+		if err != nil {
+			r.fail(key+"_FILE", errFile)
 			return Secret{}
 		}
-		return NewSecret(v)
+		if s := strings.TrimRight(string(b), "\r\n"); strings.TrimSpace(s) != "" {
+			return NewSecret(s)
+		}
+		r.fail(key+"_FILE", ErrMissing)
+	default:
+		r.fail(key, ErrMissing)
 	}
+	return Secret{}
+}
 
+// requiredSecret reads a secret and validates it.
+func (r *reader) requiredSecret(key string, validate func(Secret) (Secret, error)) Secret {
+	s := r.secret(key)
+	if s.Reveal() == "" {
+		return s
+	}
+	v, err := validate(s)
+	if err != nil {
+		r.fail(key, err)
+	}
+	return v
+}
+
+// opt parses key with parse, keeping def when the variable is unset.
+func opt[T any](r *reader, key string, def T, parse func(string) (T, error)) T {
+	s, ok := r.raw(key)
+	if !ok {
+		return def
+	}
+	v, err := parse(s)
+	if err != nil {
+		r.fail(key, err)
+		return def
+	}
+	return v
+}
+
+// Load builds a Config, reporting every problem at once via errors.Join.
+func Load(lookup Lookup, readFile ReadFile) (Config, error) {
+	r := &reader{lookup: lookup, readFile: readFile}
 	cfg := Config{
-		Env:              EnvDev,
-		HTTPAddr:         ":8080",
-		WorkerHealthAddr: ":8081",
-		LogLevel:         slog.LevelInfo,
-		ShutdownTimeout:  15 * time.Second,
-		ReadinessTimeout: 2 * time.Second,
+		Env:              opt(r, "TUORPS_ENV", EnvDev, parseEnv),
+		HTTPAddr:         opt(r, "HTTP_ADDR", ":8080", parseAddr),
+		WorkerHealthAddr: opt(r, "WORKER_HEALTH_ADDR", ":8081", parseAddr),
+		LogLevel:         opt(r, "LOG_LEVEL", slog.LevelInfo, parseLevel),
+		ShutdownTimeout:  opt(r, "SHUTDOWN_TIMEOUT", 15*time.Second, parseDuration),
+		ReadinessTimeout: opt(r, "READINESS_TIMEOUT", 2*time.Second, parseDuration),
 		HTTP: HTTP{
-			ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout:       15 * time.Second,
-			WriteTimeout:      30 * time.Second,
-			IdleTimeout:       120 * time.Second,
-			MaxBodyBytes:      1 << 20,
+			ReadHeaderTimeout: opt(r, "HTTP_READ_HEADER_TIMEOUT", 5*time.Second, parseDuration),
+			ReadTimeout:       opt(r, "HTTP_READ_TIMEOUT", 15*time.Second, parseDuration),
+			WriteTimeout:      opt(r, "HTTP_WRITE_TIMEOUT", 30*time.Second, parseDuration),
+			IdleTimeout:       opt(r, "HTTP_IDLE_TIMEOUT", 120*time.Second, parseDuration),
+			MaxBodyBytes:      opt(r, "HTTP_MAX_BODY_BYTES", int64(1<<20), ParseSize),
 		},
 		DB: DB{
-			URL:             secret("DATABASE_URL"),
-			MaxConns:        20,
-			MinConns:        2,
-			MaxConnLifetime: time.Hour,
-			MaxConnIdleTime: 15 * time.Minute,
+			URL:             r.requiredSecret("DATABASE_URL", urlWithScheme("postgres", "postgresql")),
+			MaxConns:        opt(r, "DB_MAX_CONNS", int32(20), parsePositiveInt32),
+			MinConns:        opt(r, "DB_MIN_CONNS", int32(2), parseNonNegativeInt32),
+			MaxConnLifetime: opt(r, "DB_MAX_CONN_LIFETIME", time.Hour, parseDuration),
+			MaxConnIdleTime: opt(r, "DB_MAX_CONN_IDLE_TIME", 15*time.Minute, parseDuration),
 		},
 		Redis: Redis{
-			URL:          secret("REDIS_URL"),
-			PoolSize:     20,
-			DialTimeout:  2 * time.Second,
-			ReadTimeout:  time.Second,
-			WriteTimeout: time.Second,
+			URL:          r.requiredSecret("REDIS_URL", urlWithScheme("redis", "rediss")),
+			PoolSize:     opt(r, "REDIS_POOL_SIZE", 20, parsePositiveInt),
+			DialTimeout:  opt(r, "REDIS_DIAL_TIMEOUT", 2*time.Second, parseDuration),
+			ReadTimeout:  opt(r, "REDIS_READ_TIMEOUT", time.Second, parseDuration),
+			WriteTimeout: opt(r, "REDIS_WRITE_TIMEOUT", time.Second, parseDuration),
 		},
 	}
-	if len(errs) > 0 {
-		return Config{}, errors.Join(errs...)
+	if cfg.DB.MinConns > cfg.DB.MaxConns {
+		r.fail("DB_MIN_CONNS", errMinMax)
+	}
+	if len(r.errs) > 0 {
+		return Config{}, errors.Join(r.errs...)
 	}
 	return cfg, nil
 }
