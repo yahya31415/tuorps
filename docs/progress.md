@@ -105,17 +105,27 @@ Delivered:
   - turns every unexpected exit into a block (exit 2);
   - is verified under bash 3.2.57 with BusyBox;
   - has its specs run in CI on macOS under `/bin/bash`.
-- **Stack smoke test** (`make smoke`, CI job `stack-smoke`): 37 end-to-end
-  checks, including network isolation. A local negative control (host
-  networking) produced exactly the 4 expected failures, with 33 passing.
+- **Stack smoke test** (`make smoke`, CI job `stack-smoke`). CI run
+  39190405578 on a normal Docker host passed everything:
+  - production config (`compose.yaml` alone): 38/38;
+  - dev overlay: 35/35.
+- **Network isolation verified in production config**: postgres, redis and
+  garage have no egress and no published ports; the api and worker do have
+  egress.
+- **First CI run (39190014692) found two things:**
+  - The dev overlay gives the datastores egress, because it puts them on a
+    routable network to publish ports. This is now a documented dev-only
+    trade-off.
+  - A false failure in my DNS-based check: Docker's embedded DNS does not
+    answer probes that share another container's namespace. The probes now
+    use TCP connects to IP literals.
 
 ## Open questions and follow-ups
 
 1. **Codespace firewall**: Compose bridge networks are dropped by stale
    iptables-legacy rules in this Codespace. A user-run fix is documented in
-   `docs/development.md`. The `stack-smoke` CI job verifies network isolation
-   on a normal Docker host. It has **not run yet**: the branch has not been
-   pushed.
+   `docs/development.md`. Network isolation is verified on a normal Docker
+   host by the `stack-smoke` CI job (passing).
 2. **GO-2026-5932** (golang.org/x/crypto, no fix yet): currently not
    reachable from our code. M2 imports x/crypto for argon2id. Check whether
    the affected package is used before then.

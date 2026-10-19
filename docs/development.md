@@ -61,7 +61,18 @@ stack end to end:
 - secrets absent from logs;
 - graceful SIGTERM exits.
 
-The CI job `stack-smoke` runs it on a normal Docker host.
+The script detects its mode from the stack:
+
+- **Production config** (`compose.yaml` alone): datastores must have no
+  egress and no published ports.
+- **Dev overlay** (`make up`): datastore ports must be published on loopback.
+  Isolation is not asserted, because the overlay attaches the datastores to a
+  routable network to publish ports, which also gives them egress. This is a
+  deliberate dev-only trade-off.
+
+The CI job `stack-smoke` runs both modes on a normal Docker host. Network
+probes use TCP connects to IP literals: Docker's embedded DNS does not answer
+a probe container that joins another container's network namespace.
 
 ## Known environment issue: GitHub Codespaces bridge networking
 

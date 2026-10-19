@@ -1,5 +1,10 @@
 # Local development overlay: exposes datastores on loopback for tooling.
 # Never use in production. `make up` applies it.
+#
+# Trade-off: publishing a port needs a routable network, so this overlay
+# attaches the datastores to `devhost`, which also gives them a route to the
+# internet. Isolation holds only for compose.yaml alone; CI asserts both
+# (scripts/stack-smoke.sh, job stack-smoke).
 services:
   postgres:
     ports: ["127.0.0.1:5432:5432"]
