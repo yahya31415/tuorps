@@ -214,3 +214,16 @@ func BenchmarkCan(b *testing.B) {
 		_ = core.Can(p, core.PermPostPublish, brandA())
 	}
 }
+
+func TestPrincipalAccessors(t *testing.T) {
+	p := principal(t, false, map[uuid.UUID]core.Role{brandA(): core.RoleAgent})
+	if p.UserID() != user() || p.WorkspaceID() != ws() || p.IsOwner() {
+		t.Fatalf("accessors = %v %v %v", p.UserID(), p.WorkspaceID(), p.IsOwner())
+	}
+	if r, ok := p.BrandRole(brandA()); !ok || r != core.RoleAgent {
+		t.Errorf("BrandRole(A) = %v %v", r, ok)
+	}
+	if _, ok := p.BrandRole(brandB()); ok {
+		t.Error("BrandRole(B) present")
+	}
+}
