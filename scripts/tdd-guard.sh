@@ -8,6 +8,22 @@
 # blocks it and the stderr message is shown to the agent. Fails closed.
 set -euo pipefail
 
+# Claude Code treats any exit code other than 2 as a non-blocking error, so
+# an unexpected failure must still block (fail closed).
+# shellcheck disable=SC2329 # invoked by the EXIT trap below
+on_exit() {
+	local rc=$?
+	if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+		printf 'tdd-guard: internal error (exit %s); blocking to be safe.\n' "$rc" >&2
+		exit 2
+	fi
+}
+trap on_exit EXIT
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/path.sh
+. "$here/lib/path.sh"
+
 readonly RED_MAX_AGE_MIN=30
 readonly RED_MARKER='recorded-by: make red'
 JQ="${TDD_GUARD_JQ:-jq}"
@@ -28,14 +44,14 @@ field() { printf '%s' "$input" | "$JQ" -r "$1 // empty"; }
 
 project="$(field .cwd)"
 project="${CLAUDE_PROJECT_DIR:-${project:-$PWD}}"
-project="$(realpath -m -- "$project")"
+project="$(normpath "$project")"
 
 guard_edit() {
 	local path rel
 	path="$(field .tool_input.file_path)"
 	[[ -z "$path" ]] && exit 0
 	[[ "$path" == /* ]] || path="$project/$path"
-	path="$(realpath -m -- "$path")"
+	path="$(normpath "$path")"
 
 	case "$path" in
 	"$project"/*) rel="${path#"$project"/}" ;;

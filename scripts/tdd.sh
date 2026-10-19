@@ -7,6 +7,10 @@
 # Operates on the Go module in the current directory.
 set -uo pipefail
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/path.sh
+. "$here/lib/path.sh"
+
 readonly RED_FILE=".tdd/red"
 readonly RED_MARKER='recorded-by: make red'
 
@@ -17,8 +21,7 @@ die() {
 
 # pkg_dir ./internal/x/... -> internal/x (absolute)
 pkg_dir() {
-	local p="${1%/...}"
-	realpath -m -- "$p"
+	normpath "${1%/...}"
 }
 
 # error_locations <output>: one file path per build error. A package with no
@@ -36,11 +39,11 @@ compile_errors_outside() {
 	dir="$(pkg_dir "$pkg")"
 	[[ "$pkg" == */... ]] && recursive=1
 	while IFS= read -r file; do
-		abs="$(realpath -m -- "$file")"
+		abs="$(normpath "$file")"
 		if ((recursive)); then
 			[[ "$abs" == "$dir"/* ]] && continue
 		else
-			[[ "$(dirname -- "$abs")" == "$dir" ]] && continue
+			[[ "${abs%/*}" == "$dir" ]] && continue
 		fi
 		printf '%s\n' "$file"
 	done < <(error_locations "$out")
