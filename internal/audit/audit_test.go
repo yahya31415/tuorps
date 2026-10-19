@@ -15,6 +15,7 @@ import (
 	"github.com/yahya31415/tuorps/internal/audit/core"
 	"github.com/yahya31415/tuorps/internal/platform/clock"
 	"github.com/yahya31415/tuorps/internal/platform/config"
+	"github.com/yahya31415/tuorps/internal/platform/ids"
 	"github.com/yahya31415/tuorps/internal/platform/ids/idstest"
 	"github.com/yahya31415/tuorps/internal/platform/postgres"
 	"github.com/yahya31415/tuorps/internal/platform/testinfra"
@@ -44,7 +45,7 @@ func leftPad(n int) string {
 	return string(b)
 }
 
-func setup(t *testing.T) (*pgxpool.Pool, *pgxpool.Pool) {
+func setup(t testing.TB) (*pgxpool.Pool, *pgxpool.Pool) {
 	t.Helper()
 	pg := testinfra.MigratedPostgres(t)
 	mk := func(url string, max int32) *pgxpool.Pool {
@@ -76,7 +77,7 @@ func writer(t *testing.T, app *pgxpool.Pool, idsInOrder ...uuid.UUID) audit.Writ
 	return audit.NewWriter(app, idstest.Sequence(t, idsInOrder...), clock.Fixed(time.Date(2026, 10, 19, 10, 0, 0, 0, time.UTC)))
 }
 
-func event(t *testing.T, action, target string) core.Event {
+func event(t testing.TB, action, target string) core.Event {
 	t.Helper()
 	ev, err := core.NewEvent(action, "brand", target, map[string]string{"name": "Diwali"})
 	if err != nil {
@@ -305,4 +306,20 @@ func TestInWriteTxResolving(t *testing.T) {
 			t.Errorf("audit row written for a failed action")
 		}
 	})
+}
+
+// BenchmarkInWriteTx measures the audited-write envelope every mutation
+// pays: BEGIN, scope GUCs, the audit insert and COMMIT (fn does nothing).
+func BenchmarkInWriteTx(b *testing.B) {
+	app, _ := setup(b)
+	w := audit.NewWriter(app, ids.System(), clock.System())
+	scope := postgres.Scope{WorkspaceID: u(wsA), UserID: u(uA)}
+	ev := event(b, "brand.update", "0199c3f0-0000-7000-8000-00000000ba01")
+	meta := core.Meta{RequestID: "req-bench", IPHash: "iphash"}
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := w.InWriteTx(b.Context(), scope, ev, meta, func(audit.Tx) error { return nil }); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
