@@ -6,6 +6,7 @@ package core
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	htmltemplate "html/template"
@@ -59,6 +60,34 @@ type Message struct {
 	kind   Kind
 	locale string
 	data   map[string]string
+}
+
+func (m Message) To() mail.Address        { return m.to }
+func (m Message) Kind() Kind              { return m.kind }
+func (m Message) Locale() string          { return m.locale }
+func (m Message) Data() map[string]string { return maps.Clone(m.data) }
+
+// wireMessage is the JSON form of a Message (for job payloads).
+type wireMessage struct {
+	To     mail.Address      `json:"to"`
+	Kind   Kind              `json:"kind"`
+	Locale string            `json:"locale"`
+	Data   map[string]string `json:"data"`
+}
+
+// MarshalJSON encodes m for storage in a job.
+func (m Message) MarshalJSON() ([]byte, error) {
+	return json.Marshal(wireMessage{To: m.to, Kind: m.kind, Locale: m.locale, Data: m.data})
+}
+
+// ParseMessage decodes MarshalJSON output and validates it again, so a
+// stored payload can never bypass NewMessage.
+func ParseMessage(b []byte) (Message, error) {
+	var w wireMessage
+	if err := json.Unmarshal(b, &w); err != nil {
+		return Message{}, fmt.Errorf("%w: payload", ErrInvalidMessage)
+	}
+	return NewMessage(w.To, w.Kind, w.Locale, w.Data)
 }
 
 // NewMessage validates the recipient and the data for kind.
