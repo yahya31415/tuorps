@@ -242,3 +242,67 @@ func TestTxIsOnlyObtainableFromInWriteTx(t *testing.T) {
 	}
 	var _ func(audit.Tx) error = func(tx audit.Tx) error { _ = pgx.Tx(tx.Pgx()); return nil }
 }
+
+func TestInWriteTxResolving(t *testing.T) {
+	app, admin := setup(t)
+	pwdEvent := func(s postgres.Scope) (core.Event, error) {
+		return core.NewEvent("auth.password_reset", "user", s.UserID.String(), nil)
+	}
+
+	t.Run("scope resolved inside the transaction governs the write and the record", func(t *testing.T) {
+		w := writer(t, app, recID(21))
+		var seen postgres.Scope
+		err := w.InWriteTxResolving(t.Context(),
+			func(tx pgx.Tx) (postgres.Scope, error) {
+				var id uuid.UUID // stands in for redeeming a one-time token
+				if err := tx.QueryRow(t.Context(), "SELECT $1::uuid", uA).Scan(&id); err != nil {
+					return postgres.Scope{}, err
+				}
+				return postgres.Scope{UserID: id}, nil
+			},
+			pwdEvent, core.Meta{RequestID: "r"},
+			func(tx audit.Tx) error {
+				seen = tx.Scope()
+				var user *string
+				return tx.Pgx().QueryRow(t.Context(), "SELECT current_user_id()::text").Scan(&user)
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen.UserID != u(uA) {
+			t.Errorf("fn saw scope %+v", seen)
+		}
+		if n := count(t, admin, `SELECT count(*) FROM tuorps.audit_log WHERE id = $1 AND actor_user_id = $2 AND target_id = $2::text`, recID(21), uA); n != 1 {
+			t.Errorf("audit rows = %d", n)
+		}
+	})
+
+	t.Run("a failed resolution writes nothing", func(t *testing.T) {
+		w := writer(t, app, recID(22))
+		bad := errors.New("token not found")
+		ran := false
+		err := w.InWriteTxResolving(t.Context(),
+			func(pgx.Tx) (postgres.Scope, error) { return postgres.Scope{}, bad },
+			pwdEvent, core.Meta{}, func(audit.Tx) error { ran = true; return nil })
+		if !errors.Is(err, bad) || ran {
+			t.Fatalf("err = %v, ran = %v", err, ran)
+		}
+	})
+
+	t.Run("work done during resolution rolls back if the action fails", func(t *testing.T) {
+		w := writer(t, app, recID(23))
+		boom := errors.New("boom")
+		err := w.InWriteTxResolving(t.Context(),
+			func(tx pgx.Tx) (postgres.Scope, error) {
+				_, err := tx.Exec(t.Context(), "CREATE TEMP TABLE resolved_marker (x int)")
+				return postgres.Scope{UserID: u(uA)}, err
+			},
+			pwdEvent, core.Meta{}, func(audit.Tx) error { return boom })
+		if !errors.Is(err, boom) {
+			t.Fatalf("err = %v", err)
+		}
+		if n := count(t, admin, `SELECT count(*) FROM tuorps.audit_log WHERE id = $1`, recID(23)); n != 0 {
+			t.Errorf("audit row written for a failed action")
+		}
+	})
+}
