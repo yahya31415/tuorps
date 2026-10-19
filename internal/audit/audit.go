@@ -57,37 +57,69 @@ func NewWriter(pool *pgxpool.Pool, newID ids.NewID, now clock.Now) Writer {
 // record is built before fn runs, so an event that cannot be recorded
 // performs no work at all.
 func (w Writer) InWriteTx(ctx context.Context, s postgres.Scope, ev core.Event, meta core.Meta, fn func(Tx) error) error {
-	rec, err := core.NewRecord(w.newID(), s.WorkspaceID, s.UserID, ev, meta, w.now())
+	ins, err := w.prepare(s, ev, meta)
 	if err != nil {
 		return err
-	}
-	details, err := json.Marshal(rec.Details)
-	if err != nil {
-		return fmt.Errorf("audit: details: %w", err)
-	}
-	if rec.Details == nil {
-		details = []byte("{}")
 	}
 	return postgres.InTx(ctx, w.pool, s, func(tx pgx.Tx) error {
 		if err := fn(Tx{tx: tx, scope: s}); err != nil {
 			return err
 		}
+		return ins(ctx, tx)
+	})
+}
+
+// InWriteTxResolving is InWriteTx for actions whose scope is only known
+// inside the transaction (redeeming a one-time token, accepting an
+// invitation). resolve runs with no tenant scope; its result then scopes fn
+// and the audit record, all in one transaction.
+func (w Writer) InWriteTxResolving(ctx context.Context, resolve func(pgx.Tx) (postgres.Scope, error),
+	event func(postgres.Scope) (core.Event, error), meta core.Meta, fn func(Tx) error) error {
+	return postgres.InTx(ctx, w.pool, postgres.Scope{}, func(tx pgx.Tx) error {
+		s, err := resolve(tx)
+		if err != nil {
+			return err
+		}
+		ev, err := event(s)
+		if err != nil {
+			return err
+		}
+		ins, err := w.prepare(s, ev, meta)
+		if err != nil {
+			return err
+		}
+		if err := postgres.SetScope(ctx, tx, s); err != nil {
+			return err
+		}
+		if err := fn(Tx{tx: tx, scope: s}); err != nil {
+			return err
+		}
+		return ins(ctx, tx)
+	})
+}
+
+// prepare validates the record up front and returns its insert.
+func (w Writer) prepare(s postgres.Scope, ev core.Event, meta core.Meta) (func(context.Context, pgx.Tx) error, error) {
+	rec, err := core.NewRecord(w.newID(), s.WorkspaceID, s.UserID, ev, meta, w.now())
+	if err != nil {
+		return nil, err
+	}
+	details := []byte("{}")
+	if rec.Details != nil {
+		if details, err = json.Marshal(rec.Details); err != nil {
+			return nil, fmt.Errorf("audit: details: %w", err)
+		}
+	}
+	return func(ctx context.Context, tx pgx.Tx) error {
 		if err := sqlcgen.New(tx).InsertAuditRecord(ctx, sqlcgen.InsertAuditRecordParams{
-			ID:          rec.ID,
-			WorkspaceID: rec.WorkspaceID,
-			ActorUserID: rec.ActorUserID,
-			Action:      rec.Action,
-			TargetType:  rec.TargetType,
-			TargetID:    rec.TargetID,
-			RequestID:   rec.RequestID,
-			IpHash:      rec.IPHash,
-			Details:     details,
-			At:          rec.At,
+			ID: rec.ID, WorkspaceID: rec.WorkspaceID, ActorUserID: rec.ActorUserID, Action: rec.Action,
+			TargetType: rec.TargetType, TargetID: rec.TargetID, RequestID: rec.RequestID, IpHash: rec.IPHash,
+			Details: details, At: rec.At,
 		}); err != nil {
 			return fmt.Errorf("audit: insert: %w", err)
 		}
 		return nil
-	})
+	}, nil
 }
 
 // ListWorkspace returns up to limit records of s's workspace older than

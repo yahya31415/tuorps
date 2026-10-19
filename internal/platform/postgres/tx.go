@@ -39,15 +39,24 @@ func inTx(ctx context.Context, pool *pgxpool.Pool, opts pgx.TxOptions, s Scope, 
 			err = errors.Join(err, ignoreClosed(tx.Rollback(context.WithoutCancel(ctx))))
 		}
 	}()
-	if _, err = tx.Exec(ctx, "SELECT set_config('app.workspace_id', $1, true), set_config('app.user_id', $2, true)",
-		gucValue(s.WorkspaceID), gucValue(s.UserID)); err != nil {
-		return fmt.Errorf("postgres: set tenant scope: %w", err)
+	if err = SetScope(ctx, tx, s); err != nil {
+		return err
 	}
 	if err = fn(tx); err != nil {
 		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return fmt.Errorf("postgres: commit: %w", err)
+	}
+	return nil
+}
+
+// SetScope (re)sets the tenant GUCs for the rest of tx, for transactions
+// that learn their scope part-way, e.g. after redeeming a one-time token.
+func SetScope(ctx context.Context, tx pgx.Tx, s Scope) error {
+	if _, err := tx.Exec(ctx, "SELECT set_config('app.workspace_id', $1, true), set_config('app.user_id', $2, true)",
+		gucValue(s.WorkspaceID), gucValue(s.UserID)); err != nil {
+		return fmt.Errorf("postgres: set tenant scope: %w", err)
 	}
 	return nil
 }
