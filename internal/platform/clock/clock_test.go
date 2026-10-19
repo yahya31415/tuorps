@@ -22,7 +22,9 @@ func TestSystemReturnsCurrentUTCTime(t *testing.T) {
 func TestFixedAlwaysReturnsTheSameInstant(t *testing.T) {
 	at := time.Date(2026, 10, 19, 9, 30, 0, 0, time.UTC)
 	now := clock.Fixed(at)
-	if !now().Equal(at) || !now().Equal(at) {
-		t.Fatalf("Fixed(%v)() = %v", at, now())
+	for i := range 2 {
+		if got := now(); !got.Equal(at) {
+			t.Fatalf("call %d: Fixed(%v)() = %v", i, at, got)
+		}
 	}
 }
