@@ -34,6 +34,7 @@ func gate(t *testing.T, prof string, args ...string) result {
 }
 
 func TestCoverageGate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		profile  string
@@ -61,6 +62,7 @@ func TestCoverageGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r := gate(t, tc.profile)
 			if r.code != tc.wantCode {
 				t.Fatalf("exit = %d, want %d\n%s", r.code, tc.wantCode, r.output())
@@ -73,6 +75,7 @@ func TestCoverageGate(t *testing.T) {
 }
 
 func TestCoverageGateCustomThresholds(t *testing.T) {
+	t.Parallel()
 	prof := profile(blocks("internal/a/core/x.go", 10, 5))
 	if r := gate(t, prof, "50", "50"); r.code != 0 {
 		t.Fatalf("exit = %d, want 0 with 50/50 thresholds\n%s", r.code, r.output())
@@ -80,6 +83,7 @@ func TestCoverageGateCustomThresholds(t *testing.T) {
 }
 
 func TestCoverageGateMissingProfile(t *testing.T) {
+	t.Parallel()
 	r := run(t, t.TempDir(), nil, "", scriptPath(t, "coverage-gate.sh"), "/nonexistent/coverage.out")
 	if r.code == 0 {
 		t.Fatal("exit = 0 for a missing profile")

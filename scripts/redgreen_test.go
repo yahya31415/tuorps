@@ -43,6 +43,7 @@ func readRed(t *testing.T, dir string) string {
 }
 
 func TestRedRecordsAFailingTest(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	r := tdd(t, dir, "red", "./pkg/a", "^TestAdd$")
 	if r.code != 0 {
@@ -67,6 +68,7 @@ func TestRedRecordsAFailingTest(t *testing.T) {
 }
 
 func TestRedRefusesWithoutAFailure(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		prepare func(t *testing.T, dir string)
@@ -85,6 +87,7 @@ func TestRedRefusesWithoutAFailure(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			dir := newModule(t)
 			tc.prepare(t, dir)
 			r := tdd(t, dir, "red", tc.pkg, tc.run)
@@ -102,6 +105,7 @@ func TestRedRefusesWithoutAFailure(t *testing.T) {
 }
 
 func TestRedAcceptsCompileErrorInTargetPackage(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	writeFile(t, dir, "pkg/a/sub_test.go", subTestUndf)
 	r := tdd(t, dir, "red", "./pkg/a", "^TestSub$")
@@ -114,6 +118,7 @@ func TestRedAcceptsCompileErrorInTargetPackage(t *testing.T) {
 }
 
 func TestGreenClearsRedOncePassing(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	if r := tdd(t, dir, "red", "./pkg/a", "^TestAdd$"); r.code != 0 {
 		t.Fatalf("red: %s", r.output())
@@ -129,6 +134,7 @@ func TestGreenClearsRedOncePassing(t *testing.T) {
 }
 
 func TestGreenKeepsRedWhileFailing(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	if r := tdd(t, dir, "red", "./pkg/a", "^TestAdd$"); r.code != 0 {
 		t.Fatalf("red: %s", r.output())
@@ -143,6 +149,7 @@ func TestGreenKeepsRedWhileFailing(t *testing.T) {
 }
 
 func TestGreenRequiresWholePackageToPass(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	if r := tdd(t, dir, "red", "./pkg/a", "^TestAdd$"); r.code != 0 {
 		t.Fatalf("red: %s", r.output())
@@ -159,6 +166,7 @@ func TestGreenRequiresWholePackageToPass(t *testing.T) {
 }
 
 func TestGreenWithoutRed(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	r := tdd(t, dir, "green")
 	if r.code == 0 || !strings.Contains(r.output(), "make red") {
@@ -167,6 +175,7 @@ func TestGreenWithoutRed(t *testing.T) {
 }
 
 func TestMakeTargetsWireThroughToScript(t *testing.T) {
+	t.Parallel()
 	dir := newModule(t)
 	makefile := scriptPath(t, "../Makefile")
 	r := run(t, dir, goEnv(), "", "make", "-s", "-f", makefile, "red", "PKG=./pkg/a", "RUN=^TestAdd$")
