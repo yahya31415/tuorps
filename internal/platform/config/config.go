@@ -151,6 +151,26 @@ func opt[T any](r *reader, key string, def T, parse func(string) (T, error)) T {
 	return v
 }
 
+// Migrate is the configuration for running schema migrations, which connect
+// as the schema-owning role rather than the runtime application role.
+type Migrate struct {
+	DatabaseURL Secret
+	LogLevel    slog.Level
+}
+
+// LoadMigrate builds a Migrate config, reporting every problem at once.
+func LoadMigrate(lookup Lookup, readFile ReadFile) (Migrate, error) {
+	r := &reader{lookup: lookup, readFile: readFile}
+	cfg := Migrate{
+		DatabaseURL: r.requiredSecret("MIGRATE_DATABASE_URL", urlWithScheme("postgres", "postgresql")),
+		LogLevel:    opt(r, "LOG_LEVEL", slog.LevelInfo, parseLevel),
+	}
+	if len(r.errs) > 0 {
+		return Migrate{}, errors.Join(r.errs...)
+	}
+	return cfg, nil
+}
+
 // Load builds a Config, reporting every problem at once via errors.Join.
 func Load(lookup Lookup, readFile ReadFile) (Config, error) {
 	r := &reader{lookup: lookup, readFile: readFile}
