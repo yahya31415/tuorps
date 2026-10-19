@@ -344,37 +344,23 @@ func (h *handlers) removeRole(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// allBrands lists every brand p can see (for permission checks spanning brands).
-func allBrands(r *http.Request, tx pgx.Tx, p core.Principal) ([]workspace.Brand, error) {
-	return workspace.ListBrands(r.Context(), tx, p, uuid.Nil(), 1000)
-}
-
 func (h *handlers) listMembers(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
+	if !requireMemberManager(w, r, p) {
+		return
+	}
 	pg, ok := page(w, r)
 	if !ok {
 		return
 	}
-	allowed := false
 	var items []memberJSON
 	if !h.read(w, r, scopeOf(p), func(tx pgx.Tx) error {
-		brands, err := allBrands(r, tx, p)
-		if err != nil {
-			return err
-		}
-		if allowed = canManageMembers(p, brands); !allowed {
-			return nil
-		}
 		rows, err := workspace.ListMembers(r.Context(), tx, p.WorkspaceID(), pg.After, pg.Limit)
 		for _, m := range rows {
 			items = append(items, memberJSON{UserID: m.UserID, Name: m.DisplayName, Email: m.Email, IsOwner: m.IsOwner, JoinedAt: m.JoinedAt, Roles: m.Roles})
 		}
 		return err
 	}) {
-		return
-	}
-	if !allowed {
-		forbidden(w, r)
 		return
 	}
 	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(m memberJSON) uuid.UUID { return m.UserID }))
@@ -398,26 +384,22 @@ func (h *handlers) removeMember(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// requireMemberManager writes 403 unless p may manage members of some brand.
-func (h *handlers) requireMemberManager(w http.ResponseWriter, r *http.Request, p core.Principal) bool {
-	allowed := false
-	if !h.read(w, r, scopeOf(p), func(tx pgx.Tx) error {
-		brands, err := allBrands(r, tx, p)
-		allowed = err == nil && canManageMembers(p, brands)
-		return err
-	}) {
+// requireMemberManager writes 403 unless p is the owner or administers a brand.
+func requireMemberManager(w http.ResponseWriter, r *http.Request, p core.Principal) bool {
+	if !core.CanOnAnyBrand(p, core.PermBrandMembersManage) {
+		forbidden(w, r)
 		return false
 	}
-	if !allowed {
-		forbidden(w, r)
-	}
-	return allowed
+	return true
 }
 
 func (h *handlers) listInvitations(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
+	if !requireMemberManager(w, r, p) {
+		return
+	}
 	pg, ok := page(w, r)
-	if !ok || !h.requireMemberManager(w, r, p) {
+	if !ok {
 		return
 	}
 	var items []invitationJSON
@@ -499,7 +481,7 @@ func domainOf(email string) string {
 
 func (h *handlers) revokeInvitation(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
-	if !h.requireMemberManager(w, r, p) {
+	if !requireMemberManager(w, r, p) {
 		return
 	}
 	id, ok := pathID(r, "id")

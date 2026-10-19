@@ -131,6 +131,20 @@ func Can(p Principal, perm Permission, brand uuid.UUID) bool {
 	return ok && roleAllows(r, perm)
 }
 
+// CanOnAnyBrand reports whether p may perform the brand-scoped perm on at
+// least one brand (e.g. whether p administers any brand).
+func CanOnAnyBrand(p Principal, perm Permission) bool {
+	if p.isOwner {
+		return true
+	}
+	for _, r := range p.brandRoles {
+		if roleAllows(r, perm) {
+			return true
+		}
+	}
+	return false
+}
+
 // ValidateName trims and validates a workspace or brand name.
 func ValidateName(s string) (string, error) {
 	s = strings.TrimSpace(s)

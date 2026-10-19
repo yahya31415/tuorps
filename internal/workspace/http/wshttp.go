@@ -239,16 +239,3 @@ func newList[T any](items []T, limit int32, lastID func(T) uuid.UUID) listRespon
 	}
 	return out
 }
-
-// canManageMembers: the owner, or an admin of at least one brand.
-func canManageMembers(p core.Principal, brands []workspace.Brand) bool {
-	if p.IsOwner() {
-		return true
-	}
-	for _, b := range brands {
-		if core.Can(p, core.PermBrandMembersManage, b.ID) {
-			return true
-		}
-	}
-	return false
-}
