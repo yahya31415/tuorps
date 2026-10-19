@@ -84,7 +84,7 @@ func newRules() (rules, error) {
 	}
 	add(&r.signupIP, "signup_ip", 5, time.Hour)
 	add(&r.loginIP, "login_ip", 10, time.Minute)
-	add(&r.loginEmail, "login_email", 5, time.Minute)
+	add(&r.loginEmail, "login_email", 10, time.Minute)
 	add(&r.mfaIP, "mfa_ip", 20, time.Minute)
 	add(&r.emailIP, "email_flow_ip", 5, time.Hour)
 	add(&r.emailAddr, "email_flow_addr", 3, time.Hour)
@@ -113,6 +113,11 @@ func Register(rt *httpx.Router, d Deps) error {
 	rt.HandleFunc("POST /v1/auth/login", h.login)
 	rt.Handle("POST /v1/auth/logout", authed(http.HandlerFunc(h.logout)))
 	rt.Handle("GET /v1/me", authed(http.HandlerFunc(h.me)))
+	rt.HandleFunc("POST /v1/auth/login/mfa", h.loginMFA)
+	rt.Handle("POST /v1/me/mfa/totp", authed(http.HandlerFunc(h.setupTOTP)))
+	rt.Handle("POST /v1/me/mfa/totp/confirm", authed(http.HandlerFunc(h.confirmTOTP)))
+	rt.Handle("DELETE /v1/me/mfa/totp", authed(http.HandlerFunc(h.disableTOTP)))
+	rt.Handle("POST /v1/me/mfa/recovery-codes", authed(http.HandlerFunc(h.regenerateRecoveryCodes)))
 	return nil
 }
 

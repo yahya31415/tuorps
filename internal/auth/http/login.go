@@ -93,7 +93,7 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		h.completeLogin(w, r, rec, false, func(tx audit.Tx) error {
+		_ = h.completeLogin(w, r, rec, false, func(tx audit.Tx) error {
 			if newHash == "" {
 				return nil
 			}
@@ -102,9 +102,9 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// completeLogin audits the login, runs extra (e.g. a rehash), starts a
-// fresh session and returns the user.
-func (h *handlers) completeLogin(w http.ResponseWriter, r *http.Request, rec auth.LoginRecord, mfa bool, extra func(audit.Tx) error) {
+// completeLogin audits the login, runs extra (a second factor or a
+// rehash), starts a fresh session and returns the user. It reports success.
+func (h *handlers) completeLogin(w http.ResponseWriter, r *http.Request, rec auth.LoginRecord, mfa bool, extra func(audit.Tx) error) bool {
 	action := "auth.login"
 	if mfa {
 		action = "auth.login_mfa"
@@ -118,15 +118,20 @@ func (h *handlers) completeLogin(w http.ResponseWriter, r *http.Request, rec aut
 		profile, err = loadUser(r, tx.Pgx(), rec)
 		return err
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, errInvalidCode):
+		httpx.WriteError(w, r, http.StatusUnauthorized, "invalid_code", errInvalidCode.Error())
+		return false
+	case err != nil:
 		h.internalError(w, r, "login", err)
-		return
+		return false
 	}
 	if err := h.startSession(w, r, rec.ID, mfa); err != nil {
 		h.internalError(w, r, "session", err)
-		return
+		return false
 	}
 	_ = httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": profile})
+	return true
 }
 
 func loadUser(r *http.Request, tx pgx.Tx, rec auth.LoginRecord) (userResponse, error) {
