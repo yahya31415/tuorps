@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -11,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yahya31415/tuorps/internal/platform/config"
+	"github.com/yahya31415/tuorps/internal/platform/jobs"
+	"github.com/yahya31415/tuorps/internal/platform/postgres"
 	"github.com/yahya31415/tuorps/internal/platform/testinfra"
 )
 
@@ -50,7 +54,7 @@ func TestRunRejectsUnknownSubcommand(t *testing.T) {
 
 func TestRunFailsFastOnMissingConfig(t *testing.T) {
 	err := run(t.Context(), nil, lookupFrom(nil), noFiles, new(bytes.Buffer))
-	for _, key := range []string{"DATABASE_URL", "REDIS_URL"} {
+	for _, key := range []string{"DATABASE_URL", "REDIS_URL", "SMTP_HOST", "MAIL_FROM"} {
 		if err == nil || !strings.Contains(err.Error(), key) {
 			t.Errorf("err = %v, want mention of %s", err, key)
 		}
@@ -65,13 +69,18 @@ func TestHealthcheckWithNothingListening(t *testing.T) {
 }
 
 func TestWorkerServesHealthAndShutsDown(t *testing.T) {
-	pg := testinfra.StartPostgres(t)
+	pg := testinfra.MigratedPostgres(t)
+	migrateJobs(t, pg)
 	rd := testinfra.StartRedis(t)
 	addr := freeAddr(t)
 	env := lookupFrom(map[string]string{
 		"DATABASE_URL":             pg.AppURL,
 		"ENCRYPTION_KEYS":          "k1:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
 		"ENCRYPTION_ACTIVE_KEY_ID": "k1",
+		"SMTP_HOST":                "127.0.0.1",
+		"SMTP_PORT":                "2525",
+		"SMTP_TLS":                 "none",
+		"MAIL_FROM":                "Tuorps <no-reply@tuorps.local>",
 		"REDIS_URL":                rd.URL,
 		"WORKER_HEALTH_ADDR":       addr,
 		"HTTP_ADDR":                freeAddr(t),
@@ -107,7 +116,23 @@ func TestWorkerServesHealthAndShutsDown(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("worker did not shut down")
 	}
+	if !strings.Contains(logs.String(), `"msg":"job queue started"`) || !strings.Contains(logs.String(), `"msg":"job queue stopped"`) {
+		t.Errorf("River not started and stopped:\n%s", logs.String())
+	}
 	if !strings.Contains(logs.String(), `"component":"worker"`) {
 		t.Errorf("worker logs not tagged:\n%s", logs.String())
+	}
+}
+
+// migrateJobs applies River's schema as the migrator, as `api migrate up` does.
+func migrateJobs(t *testing.T, pg *testinfra.Postgres) {
+	t.Helper()
+	pool, err := postgres.NewPool(t.Context(), config.DB{URL: config.NewSecret(pg.MigratorURL), MaxConns: 2, MaxConnLifetime: time.Hour, MaxConnIdleTime: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err := jobs.Migrate(t.Context(), pool, slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
 	}
 }
