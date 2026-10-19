@@ -19,7 +19,7 @@ func TestLoadAuthAndOriginDefaults(t *testing.T) {
 	if got := cfg.AppOrigin.String(); got != "http://localhost:8080" {
 		t.Errorf("AppOrigin = %q (dev default)", got)
 	}
-	if !cfg.Auth.CookieSecure || cfg.Auth.SessionIdle != 12*time.Hour || cfg.Auth.SessionAbsolute != 14*24*time.Hour || cfg.Auth.Argon2MaxConcurrency != 4 {
+	if cfg.Auth.SessionIdle != 12*time.Hour || cfg.Auth.SessionAbsolute != 14*24*time.Hour || cfg.Auth.Argon2MaxConcurrency != 4 {
 		t.Errorf("Auth = %+v", cfg.Auth)
 	}
 	if len(cfg.TrustedProxies) != 0 {
@@ -34,7 +34,6 @@ func TestLoadAuthAndOriginDefaults(t *testing.T) {
 func TestLoadAuthOverrides(t *testing.T) {
 	cfg, err := config.Load(env(with(map[string]string{
 		"APP_ORIGIN":               "https://app.tuorps.in",
-		"COOKIE_SECURE":            "false",
 		"SESSION_IDLE_TIMEOUT":     "2h",
 		"SESSION_ABSOLUTE_TIMEOUT": "72h",
 		"ARGON2_MAX_CONCURRENCY":   "8",
@@ -43,7 +42,7 @@ func TestLoadAuthOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.AppOrigin.String() != "https://app.tuorps.in" || cfg.Auth.CookieSecure || cfg.Auth.SessionIdle != 2*time.Hour ||
+	if cfg.AppOrigin.String() != "https://app.tuorps.in" || cfg.Auth.SessionIdle != 2*time.Hour ||
 		cfg.Auth.SessionAbsolute != 72*time.Hour || cfg.Auth.Argon2MaxConcurrency != 8 {
 		t.Errorf("cfg = %+v %+v", cfg.AppOrigin, cfg.Auth)
 	}
@@ -84,8 +83,6 @@ func TestLoadAuthRejections(t *testing.T) {
 		{"origin not http", with(map[string]string{"APP_ORIGIN": "ftp://zz9"}), "APP_ORIGIN", config.ErrInvalid},
 		{"prod requires an explicit origin", with(map[string]string{"TUORPS_ENV": "prod"}), "APP_ORIGIN", config.ErrMissing},
 		{"prod requires https", with(map[string]string{"TUORPS_ENV": "prod", "APP_ORIGIN": "http://zz9.example"}), "APP_ORIGIN", config.ErrInvalid},
-		{"prod forbids insecure cookies", with(map[string]string{"TUORPS_ENV": "prod", "APP_ORIGIN": "https://a.example", "COOKIE_SECURE": "false"}), "COOKIE_SECURE", config.ErrInvalid},
-		{"bad bool", with(map[string]string{"COOKIE_SECURE": "zz9"}), "COOKIE_SECURE", config.ErrInvalid},
 		{"idle beyond absolute", with(map[string]string{"SESSION_IDLE_TIMEOUT": "48h", "SESSION_ABSOLUTE_TIMEOUT": "24h"}), "SESSION_IDLE_TIMEOUT", config.ErrInvalid},
 		{"bad cidr", with(map[string]string{"TRUSTED_PROXY_CIDRS": "10.0.0.0/8,zz9"}), "TRUSTED_PROXY_CIDRS", config.ErrInvalid},
 		{"zero argon2 concurrency", with(map[string]string{"ARGON2_MAX_CONCURRENCY": "0"}), "ARGON2_MAX_CONCURRENCY", config.ErrInvalid},
@@ -172,4 +169,12 @@ func without(kv map[string]string, keys ...string) map[string]string {
 		}
 	}
 	return out
+}
+
+func TestCookieSecureIsGone(t *testing.T) {
+	// Session cookies are always Secure (__Host-); the old flag must not
+	// silently linger in deployments.
+	if _, err := config.Load(env(with(map[string]string{"COOKIE_SECURE": "false"})), files(nil)); !errors.Is(err, config.ErrInvalid) || !strings.Contains(err.Error(), "COOKIE_SECURE") {
+		t.Fatalf("COOKIE_SECURE accepted: %v", err)
+	}
 }
