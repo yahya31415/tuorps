@@ -103,7 +103,8 @@ func TestWebhooks(t *testing.T) {
 		if s != http.StatusOK || jobs(t, api) != before+1 {
 			t.Fatalf("status %d, jobs %d -> %d", s, before, jobs(t, api))
 		}
-		if n := api.Count(`SELECT count(*) FROM tuorps.river_job WHERE kind = 'webhooks.process' AND (args::text LIKE '%Spicy%' OR args::text LIKE '%p1%')`); n != 0 {
+		// Markers with '!' or '"' cannot occur in base64url ciphertext by chance.
+		if n := api.Count(`SELECT count(*) FROM tuorps.river_job WHERE kind = 'webhooks.process' AND (args::text LIKE '%Spicy!%' OR args::text LIKE '%"object"%')`); n != 0 {
 			t.Error("the payload is readable in the job table")
 		}
 		if n := api.Count(`SELECT count(*) FROM tuorps.webhook_receipts WHERE provider = 'meta'`); n != 1 {
