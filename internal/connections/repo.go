@@ -109,14 +109,7 @@ func GetGrant(ctx context.Context, tx pgx.Tx, ws, brand, id uuid.UUID) (Grant, e
 	if err != nil {
 		return Grant{}, mapErr(err)
 	}
-	return Grant{
-		ID: r.ID, BrandID: r.BrandID, Provider: core.Provider(r.Provider), ProviderUserID: r.ProviderUserID,
-		Scopes: r.Scopes, MissingScopes: r.MissingScopes,
-		AccessTokenEnc: str(r.AccessTokenEnc), RefreshTokenEnc: str(r.RefreshTokenEnc),
-		AccessExpiresAt: tm(r.AccessExpiresAt), RefreshExpiresAt: tm(r.RefreshExpiresAt),
-		DataAccessExpiresAt: tm(r.DataAccessExpiresAt), TokenIssuedAt: tm(r.TokenIssuedAt),
-		CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt,
-	}, nil
+	return grantFromRow(r), nil
 }
 
 // WipeGrantTokens deletes a grant's tokens, keeping the row for audit.

@@ -12,6 +12,92 @@ import (
 	"uuid"
 )
 
+const completeDeletion = `-- name: CompleteDeletion :one
+SELECT data_deletion_complete($1::text, $2::timestamptz)::boolean AS done
+`
+
+type CompleteDeletionParams struct {
+	ConfirmationCode string
+	Now              time.Time
+}
+
+func (q *Queries) CompleteDeletion(ctx context.Context, arg CompleteDeletionParams) (bool, error) {
+	row := q.db.QueryRow(ctx, completeDeletion, arg.ConfirmationCode, arg.Now)
+	var done bool
+	err := row.Scan(&done)
+	return done, err
+}
+
+const connectionsByExternal = `-- name: ConnectionsByExternal :many
+SELECT e.id::uuid AS id, e.workspace_id::uuid AS workspace_id
+FROM connections_by_external($1::text, $2::text) AS e(id, workspace_id)
+`
+
+type ConnectionsByExternalParams struct {
+	Kind       string
+	ExternalID string
+}
+
+type ConnectionsByExternalRow struct {
+	ID          uuid.UUID
+	WorkspaceID uuid.UUID
+}
+
+func (q *Queries) ConnectionsByExternal(ctx context.Context, arg ConnectionsByExternalParams) ([]ConnectionsByExternalRow, error) {
+	rows, err := q.db.Query(ctx, connectionsByExternal, arg.Kind, arg.ExternalID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConnectionsByExternalRow
+	for rows.Next() {
+		var i ConnectionsByExternalRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const connectionsDue = `-- name: ConnectionsDue :many
+SELECT d.id::uuid AS id, d.workspace_id::uuid AS workspace_id
+FROM connections_due($1::timestamptz, $2::int) AS d(id, workspace_id)
+`
+
+type ConnectionsDueParams struct {
+	Now     time.Time
+	MaxRows int32
+}
+
+type ConnectionsDueRow struct {
+	ID          uuid.UUID
+	WorkspaceID uuid.UUID
+}
+
+func (q *Queries) ConnectionsDue(ctx context.Context, arg ConnectionsDueParams) ([]ConnectionsDueRow, error) {
+	rows, err := q.db.Query(ctx, connectionsDue, arg.Now, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ConnectionsDueRow
+	for rows.Next() {
+		var i ConnectionsDueRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const disconnectConnection = `-- name: DisconnectConnection :execrows
 UPDATE connections SET status = 'disconnected', token_enc = NULL, next_due_at = NULL, updated_at = $1
 WHERE workspace_id = $2 AND brand_id = $3 AND id = $4 AND status <> 'disconnected'
@@ -93,6 +179,61 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (G
 	return i, err
 }
 
+const getConnectionByID = `-- name: GetConnectionByID :one
+SELECT c.id, c.brand_id, c.grant_id, g.provider, c.kind, c.external_id, c.display_name, c.token_enc, c.token_key_id, c.status,
+    c.token_expires_at, c.last_checked_at, c.last_error, c.warned_days, c.next_due_at, c.created_at
+FROM connections c JOIN oauth_grants g ON g.workspace_id = c.workspace_id AND g.brand_id = c.brand_id AND g.id = c.grant_id
+WHERE c.workspace_id = $1 AND c.id = $2
+`
+
+type GetConnectionByIDParams struct {
+	WorkspaceID uuid.UUID
+	ID          uuid.UUID
+}
+
+type GetConnectionByIDRow struct {
+	ID             uuid.UUID
+	BrandID        uuid.UUID
+	GrantID        uuid.UUID
+	Provider       string
+	Kind           string
+	ExternalID     string
+	DisplayName    string
+	TokenEnc       *string
+	TokenKeyID     *string
+	Status         string
+	TokenExpiresAt *time.Time
+	LastCheckedAt  *time.Time
+	LastError      *string
+	WarnedDays     int16
+	NextDueAt      *time.Time
+	CreatedAt      time.Time
+}
+
+func (q *Queries) GetConnectionByID(ctx context.Context, arg GetConnectionByIDParams) (GetConnectionByIDRow, error) {
+	row := q.db.QueryRow(ctx, getConnectionByID, arg.WorkspaceID, arg.ID)
+	var i GetConnectionByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.BrandID,
+		&i.GrantID,
+		&i.Provider,
+		&i.Kind,
+		&i.ExternalID,
+		&i.DisplayName,
+		&i.TokenEnc,
+		&i.TokenKeyID,
+		&i.Status,
+		&i.TokenExpiresAt,
+		&i.LastCheckedAt,
+		&i.LastError,
+		&i.WarnedDays,
+		&i.NextDueAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getGrant = `-- name: GetGrant :one
 SELECT id, brand_id, provider, provider_user_id, scopes, missing_scopes, access_token_enc, refresh_token_enc,
     access_expires_at, refresh_expires_at, data_access_expires_at, token_issued_at, created_by, created_at
@@ -142,6 +283,166 @@ func (q *Queries) GetGrant(ctx context.Context, arg GetGrantParams) (GetGrantRow
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const grantByID = `-- name: GrantByID :one
+SELECT id, brand_id, provider, provider_user_id, scopes, missing_scopes, access_token_enc, refresh_token_enc,
+    access_expires_at, refresh_expires_at, data_access_expires_at, token_issued_at, created_by, created_at
+FROM oauth_grants WHERE workspace_id = $1 AND id = $2
+`
+
+type GrantByIDParams struct {
+	WorkspaceID uuid.UUID
+	ID          uuid.UUID
+}
+
+type GrantByIDRow struct {
+	ID                  uuid.UUID
+	BrandID             uuid.UUID
+	Provider            string
+	ProviderUserID      string
+	Scopes              []string
+	MissingScopes       []string
+	AccessTokenEnc      *string
+	RefreshTokenEnc     *string
+	AccessExpiresAt     *time.Time
+	RefreshExpiresAt    *time.Time
+	DataAccessExpiresAt *time.Time
+	TokenIssuedAt       *time.Time
+	CreatedBy           uuid.UUID
+	CreatedAt           time.Time
+}
+
+func (q *Queries) GrantByID(ctx context.Context, arg GrantByIDParams) (GrantByIDRow, error) {
+	row := q.db.QueryRow(ctx, grantByID, arg.WorkspaceID, arg.ID)
+	var i GrantByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.BrandID,
+		&i.Provider,
+		&i.ProviderUserID,
+		&i.Scopes,
+		&i.MissingScopes,
+		&i.AccessTokenEnc,
+		&i.RefreshTokenEnc,
+		&i.AccessExpiresAt,
+		&i.RefreshExpiresAt,
+		&i.DataAccessExpiresAt,
+		&i.TokenIssuedAt,
+		&i.CreatedBy,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const grantConnections = `-- name: GrantConnections :many
+SELECT id, brand_id, display_name, kind, status FROM connections
+WHERE workspace_id = $1 AND grant_id = $2 AND status <> 'disconnected' ORDER BY id
+`
+
+type GrantConnectionsParams struct {
+	WorkspaceID uuid.UUID
+	GrantID     uuid.UUID
+}
+
+type GrantConnectionsRow struct {
+	ID          uuid.UUID
+	BrandID     uuid.UUID
+	DisplayName string
+	Kind        string
+	Status      string
+}
+
+func (q *Queries) GrantConnections(ctx context.Context, arg GrantConnectionsParams) ([]GrantConnectionsRow, error) {
+	rows, err := q.db.Query(ctx, grantConnections, arg.WorkspaceID, arg.GrantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GrantConnectionsRow
+	for rows.Next() {
+		var i GrantConnectionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.BrandID,
+			&i.DisplayName,
+			&i.Kind,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const grantsByProviderUser = `-- name: GrantsByProviderUser :many
+SELECT g.id::uuid AS id, g.workspace_id::uuid AS workspace_id
+FROM grants_by_provider_user($1::text, $2::text) AS g(id, workspace_id)
+`
+
+type GrantsByProviderUserParams struct {
+	Provider       string
+	ProviderUserID string
+}
+
+type GrantsByProviderUserRow struct {
+	ID          uuid.UUID
+	WorkspaceID uuid.UUID
+}
+
+func (q *Queries) GrantsByProviderUser(ctx context.Context, arg GrantsByProviderUserParams) ([]GrantsByProviderUserRow, error) {
+	rows, err := q.db.Query(ctx, grantsByProviderUser, arg.Provider, arg.ProviderUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GrantsByProviderUserRow
+	for rows.Next() {
+		var i GrantsByProviderUserRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const grantsUnused = `-- name: GrantsUnused :many
+SELECT u.id::uuid AS id, u.workspace_id::uuid AS workspace_id, u.brand_id::uuid AS brand_id
+FROM grants_unused($1::timestamptz) AS u(id, workspace_id, brand_id)
+`
+
+type GrantsUnusedRow struct {
+	ID          uuid.UUID
+	WorkspaceID uuid.UUID
+	BrandID     uuid.UUID
+}
+
+func (q *Queries) GrantsUnused(ctx context.Context, before time.Time) ([]GrantsUnusedRow, error) {
+	rows, err := q.db.Query(ctx, grantsUnused, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GrantsUnusedRow
+	for rows.Next() {
+		var i GrantsUnusedRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.BrandID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const insertConnection = `-- name: InsertConnection :exec
@@ -329,6 +630,47 @@ func (q *Queries) LiveConnectionsOnGrant(ctx context.Context, arg LiveConnection
 	return count, err
 }
 
+const recipients = `-- name: Recipients :many
+SELECT u.email, u.display_name, u.locale
+FROM workspace_members m
+JOIN users u ON u.id = m.user_id
+LEFT JOIN brand_roles r ON r.workspace_id = m.workspace_id AND r.user_id = m.user_id AND r.brand_id = $1
+WHERE m.workspace_id = $2 AND (m.is_owner OR r.role = 'admin') AND u.disabled_at IS NULL
+ORDER BY u.id
+`
+
+type RecipientsParams struct {
+	BrandID     uuid.UUID
+	WorkspaceID uuid.UUID
+}
+
+type RecipientsRow struct {
+	Email       string
+	DisplayName string
+	Locale      string
+}
+
+// The workspace owners and the brand's admins: who hears about a connection.
+func (q *Queries) Recipients(ctx context.Context, arg RecipientsParams) ([]RecipientsRow, error) {
+	rows, err := q.db.Query(ctx, recipients, arg.BrandID, arg.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RecipientsRow
+	for rows.Next() {
+		var i RecipientsRow
+		if err := rows.Scan(&i.Email, &i.DisplayName, &i.Locale); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const repointConnection = `-- name: RepointConnection :execrows
 UPDATE connections SET grant_id = $1, token_enc = $2, token_expires_at = $3,
     status = 'active', last_error = NULL, warned_days = 0, last_checked_at = $4, next_due_at = $5, updated_at = $4
@@ -353,6 +695,82 @@ func (q *Queries) RepointConnection(ctx context.Context, arg RepointConnectionPa
 		arg.TokenExpiresAt,
 		arg.Now,
 		arg.NextDueAt,
+		arg.WorkspaceID,
+		arg.BrandID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateConnectionHealth = `-- name: UpdateConnectionHealth :execrows
+UPDATE connections SET status = $1, last_error = $2, last_checked_at = $3,
+    warned_days = $4, next_due_at = $5, token_enc = $6,
+    token_expires_at = $7, updated_at = $8
+WHERE workspace_id = $9 AND id = $10 AND status <> 'disconnected'
+`
+
+type UpdateConnectionHealthParams struct {
+	Status         string
+	LastError      *string
+	LastCheckedAt  *time.Time
+	WarnedDays     int16
+	NextDueAt      *time.Time
+	TokenEnc       *string
+	TokenExpiresAt *time.Time
+	UpdatedAt      time.Time
+	WorkspaceID    uuid.UUID
+	ID             uuid.UUID
+}
+
+func (q *Queries) UpdateConnectionHealth(ctx context.Context, arg UpdateConnectionHealthParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateConnectionHealth,
+		arg.Status,
+		arg.LastError,
+		arg.LastCheckedAt,
+		arg.WarnedDays,
+		arg.NextDueAt,
+		arg.TokenEnc,
+		arg.TokenExpiresAt,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const updateGrantTokens = `-- name: UpdateGrantTokens :execrows
+UPDATE oauth_grants SET access_token_enc = $1, refresh_token_enc = $2,
+    access_expires_at = $3, token_issued_at = $4,
+    data_access_expires_at = $5, updated_at = $6
+WHERE workspace_id = $7 AND brand_id = $8 AND id = $9
+`
+
+type UpdateGrantTokensParams struct {
+	AccessTokenEnc      *string
+	RefreshTokenEnc     *string
+	AccessExpiresAt     *time.Time
+	TokenIssuedAt       *time.Time
+	DataAccessExpiresAt *time.Time
+	UpdatedAt           time.Time
+	WorkspaceID         uuid.UUID
+	BrandID             uuid.UUID
+	ID                  uuid.UUID
+}
+
+func (q *Queries) UpdateGrantTokens(ctx context.Context, arg UpdateGrantTokensParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateGrantTokens,
+		arg.AccessTokenEnc,
+		arg.RefreshTokenEnc,
+		arg.AccessExpiresAt,
+		arg.TokenIssuedAt,
+		arg.DataAccessExpiresAt,
+		arg.UpdatedAt,
 		arg.WorkspaceID,
 		arg.BrandID,
 		arg.ID,
