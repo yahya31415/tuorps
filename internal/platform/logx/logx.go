@@ -194,8 +194,15 @@ func sensitiveKey(key string) bool {
 }
 
 func sensitiveNorm(norm []byte, key string) bool {
-	for _, m := range [...]string{"password", "passwd", "secret", "token", "authorization", "cookie", "apikey", "phone", "mobile", "msisdn", "email"} {
+	for _, m := range [...]string{"password", "passwd", "secret", "token", "authorization", "cookie", "apikey", "phone", "mobile", "msisdn", "email", "verifier", "signedrequest"} {
 		if bytes.Contains(norm, []byte(m)) {
+			return true
+		}
+	}
+	// OAuth codes and state, matched as whole keys so that diagnostic keys
+	// such as status_code or connection_status stay readable.
+	for _, whole := range [...]string{"code", "authcode", "state", "oauthstate"} {
+		if string(norm) == whole {
 			return true
 		}
 	}
