@@ -52,3 +52,12 @@ sql:
         out: internal/connections/adapters/postgres/sqlcgen
         sql_package: pgx/v5
         emit_pointers_for_null_types: true
+  - engine: postgresql
+    schema: migrations
+    queries: internal/webhooks/adapters/postgres/queries
+    gen:
+      go:
+        package: sqlcgen
+        out: internal/webhooks/adapters/postgres/sqlcgen
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true

@@ -49,17 +49,31 @@ type API struct {
 	nextIP atomic.Uint32
 }
 
+type settings struct {
+	platforms map[connscore.Provider]connhttp.Platform
+	env       map[string]string
+}
+
 // Option adjusts the API Start builds.
-type Option func(*app.Deps)
+type Option func(*settings)
 
 // WithPlatforms replaces the platform integrations (tests use fakes).
 func WithPlatforms(p map[connscore.Provider]connhttp.Platform) Option {
-	return func(d *app.Deps) { d.Platforms = p }
+	return func(s *settings) { s.platforms = p }
+}
+
+// WithEnv adds configuration variables (for example platform credentials).
+func WithEnv(kv map[string]string) Option {
+	return func(s *settings) { s.env = kv }
 }
 
 // Start runs the API and stops it when tb ends.
 func Start(tb testing.TB, opts ...Option) *API {
 	tb.Helper()
+	var set settings
+	for _, o := range opts {
+		o(&set)
+	}
 	pg := testinfra.MigratedPostgres(tb)
 	rd := testinfra.StartRedis(tb)
 	ctx := context.Background()
@@ -82,6 +96,9 @@ func Start(tb testing.TB, opts ...Option) *API {
 		"APP_ORIGIN":               "https://app.tuorps.test",
 		"TRUSTED_PROXY_CIDRS":      "127.0.0.0/8", // clients pick their address via X-Forwarded-For
 	}
+	for k, v := range set.env {
+		env[k] = v
+	}
 	cfg, err := config.Load(func(k string) (string, bool) { v, ok := env[k]; return v, ok }, nil)
 	if err != nil {
 		tb.Fatal(err)
@@ -91,9 +108,7 @@ func Start(tb testing.TB, opts ...Option) *API {
 		tb.Fatal(err)
 	}
 	tb.Cleanup(func() { _ = deps.Close() })
-	for _, o := range opts {
-		o(deps)
-	}
+	deps.Platforms = set.platforms
 	built, err := app.BuildAPI(cfg, deps, log)
 	if err != nil {
 		tb.Fatal(err)

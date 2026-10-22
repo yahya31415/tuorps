@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/yahya31415/tuorps/internal/connections"
 	connhttp "github.com/yahya31415/tuorps/internal/connections/http"
+	"github.com/yahya31415/tuorps/internal/webhooks"
+	whhttp "github.com/yahya31415/tuorps/internal/webhooks/http"
 	"log/slog"
 	"net/http"
 	"time"
@@ -124,7 +126,25 @@ func BuildAPI(cfg config.Config, deps *Deps, log *slog.Logger) (*API, error) {
 		return nil, err
 	}
 
+	if err := whhttp.Register(rt, whhttp.Deps{
+		Inbox:     webhooks.NewInbox(deps.Pool, inserter, keys, rand.Reader),
+		Meta:      cfg.Platforms.Meta,
+		Instagram: cfg.Platforms.Instagram,
+		LinkedIn:  cfg.Platforms.LinkedIn,
+		Limiter:   limiter,
+		ClientIP:  resolver,
+		Origin:    cfg.AppOrigin,
+		Now:       now,
+		Rand:      rand.Reader,
+		Log:       log,
+	}); err != nil {
+		return nil, err
+	}
+
 	csrf := http.NewCrossOriginProtection()
+	// Platform webhooks are server-to-server, carry no session, and are
+	// authenticated by their signatures (ADR 0010).
+	csrf.AddInsecureBypassPattern("/v1/webhooks/")
 	if err := csrf.AddTrustedOrigin(cfg.AppOrigin.String()); err != nil {
 		return nil, fmt.Errorf("app: trusted origin: %w", err)
 	}

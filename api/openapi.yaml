@@ -901,6 +901,230 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /v1/webhooks/meta:
+    get:
+      operationId: metaWebhookHandshake
+      summary: Meta subscription handshake (Pages, Instagram via Facebook Login)
+      description: Echoes `hub.challenge` (digits only) when `hub.verify_token` matches. 404 when Meta is not configured.
+      tags: [webhooks]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/HubMode"
+        - $ref: "#/components/parameters/HubVerifyToken"
+        - $ref: "#/components/parameters/HubChallenge"
+      responses:
+        "200":
+          $ref: "#/components/responses/HubChallenge"
+        "400":
+          $ref: "#/components/responses/InvalidHandshake"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: metaWebhookEvent
+      summary: Meta event delivery
+      description: |
+        Verified against `X-Hub-Signature-256` (HMAC-SHA256 of the raw body,
+        Meta app secret) before parsing; recorded and enqueued once per
+        distinct body (ADR 0010).
+      tags: [webhooks]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/HubSignature"
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookPayload"
+      responses:
+        "200":
+          description: Accepted (also for a repeated delivery).
+        "401":
+          $ref: "#/components/responses/InvalidSignature"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/webhooks/instagram:
+    get:
+      operationId: instagramWebhookHandshake
+      summary: Instagram Login subscription handshake
+      tags: [webhooks]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/HubMode"
+        - $ref: "#/components/parameters/HubVerifyToken"
+        - $ref: "#/components/parameters/HubChallenge"
+      responses:
+        "200":
+          $ref: "#/components/responses/HubChallenge"
+        "400":
+          $ref: "#/components/responses/InvalidHandshake"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: instagramWebhookEvent
+      summary: Instagram Login event delivery
+      description: Signed with the Instagram app secret or the Meta app secret (Meta does not document which; ADR 0010).
+      tags: [webhooks]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/HubSignature"
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookPayload"
+      responses:
+        "200":
+          description: Accepted (also for a repeated delivery).
+        "401":
+          $ref: "#/components/responses/InvalidSignature"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/webhooks/linkedin:
+    get:
+      operationId: linkedInWebhookChallenge
+      summary: LinkedIn endpoint validation
+      description: Answers `challengeResponse` = hex HMAC-SHA256 of `challengeCode` with the client secret.
+      tags: [webhooks]
+      security: []
+      parameters:
+        - {name: challengeCode, in: query, required: true, schema: {type: string, maxLength: 128}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challengeCode, challengeResponse]
+                properties:
+                  challengeCode: {type: string}
+                  challengeResponse: {type: string}
+        "400":
+          $ref: "#/components/responses/InvalidHandshake"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: linkedInWebhookEvent
+      summary: LinkedIn notification delivery
+      description: Verified against `X-LI-Signature` (hex HMAC-SHA256 of "hmacsha256=" + raw body, client secret).
+      tags: [webhooks]
+      security: []
+      parameters:
+        - {name: X-LI-Signature, in: header, required: true, schema: {type: string}}
+      requestBody:
+        $ref: "#/components/requestBodies/WebhookPayload"
+      responses:
+        "200":
+          description: Accepted (also for a repeated delivery).
+        "401":
+          $ref: "#/components/responses/InvalidSignature"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/BodyTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/webhooks/meta/deauthorize:
+    post:
+      operationId: metaDeauthorize
+      summary: Meta deauthorize callback
+      tags: [webhooks]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/SignedRequest"
+      responses:
+        "200":
+          description: Accepted.
+        "400":
+          $ref: "#/components/responses/InvalidSignedRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/webhooks/instagram/deauthorize:
+    post:
+      operationId: instagramDeauthorize
+      summary: Instagram Login deauthorize callback
+      tags: [webhooks]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/SignedRequest"
+      responses:
+        "200":
+          description: Accepted.
+        "400":
+          $ref: "#/components/responses/InvalidSignedRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/webhooks/meta/data-deletion:
+    post:
+      operationId: metaDataDeletion
+      summary: Meta data deletion request callback
+      tags: [webhooks]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/SignedRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/DataDeletionAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidSignedRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/webhooks/instagram/data-deletion:
+    post:
+      operationId: instagramDataDeletion
+      summary: Instagram Login data deletion request callback
+      tags: [webhooks]
+      security: []
+      requestBody:
+        $ref: "#/components/requestBodies/SignedRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/DataDeletionAccepted"
+        "400":
+          $ref: "#/components/responses/InvalidSignedRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/data-deletion/{code}:
+    get:
+      operationId: dataDeletionStatus
+      summary: Public status of a data deletion request
+      tags: [webhooks]
+      security: []
+      parameters:
+        - {name: code, in: path, required: true, schema: {type: string, maxLength: 64}}
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [confirmation_code, status]
+                properties:
+                  confirmation_code: {type: string}
+                  status: {type: string, enum: [pending, done]}
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/workspaces/{ws}/brands/{brand}/members/{user}:
     put:
       operationId: setBrandRole
@@ -1169,6 +1393,26 @@ components:
       in: path
       required: true
       schema: {$ref: "#/components/schemas/Provider"}
+    HubMode:
+      name: hub.mode
+      in: query
+      required: true
+      schema: {type: string, enum: [subscribe]}
+    HubVerifyToken:
+      name: hub.verify_token
+      in: query
+      required: true
+      schema: {type: string}
+    HubChallenge:
+      name: hub.challenge
+      in: query
+      required: true
+      schema: {type: string, pattern: "^[0-9]{1,32}$"}
+    HubSignature:
+      name: X-Hub-Signature-256
+      in: header
+      required: true
+      schema: {type: string, pattern: "^sha256=[0-9a-f]{64}$"}
     Cursor:
       name: cursor
       in: query
@@ -1178,6 +1422,22 @@ components:
       name: limit
       in: query
       schema: {type: integer, minimum: 1, maximum: 100, default: 50}
+  requestBodies:
+    WebhookPayload:
+      required: true
+      description: The platform's payload, verified as raw bytes.
+      content:
+        application/json:
+          schema: {type: object}
+    SignedRequest:
+      required: true
+      content:
+        application/x-www-form-urlencoded:
+          schema:
+            type: object
+            required: [signed_request]
+            properties:
+              signed_request: {type: string, description: "<base64url HMAC-SHA256>.<base64url JSON payload>"}
   headers:
     XRequestID:
       description: Request correlation ID (UUID).
@@ -1767,6 +2027,45 @@ components:
             error:
               value:
                 error: {code: provider_unavailable, message: "…"}
+    HubChallenge:
+      description: The challenge, echoed.
+      content:
+        text/plain:
+          schema: {type: string}
+    InvalidHandshake:
+      description: Not a subscription handshake (invalid_handshake).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidSignature:
+      description: The signature does not match (invalid_signature); nothing was stored.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InvalidSignedRequest:
+      description: The signed_request is missing, malformed or mis-signed (invalid_signed_request).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    BodyTooLarge:
+      description: The body exceeds 1 MiB (body_too_large).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DataDeletionAccepted:
+      description: The request is recorded; Meta shows the user this code and status page.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [url, confirmation_code]
+            properties:
+              url: {type: string, format: uri}
+              confirmation_code: {type: string}
     RateLimited:
       description: Too many requests (rate_limited).
       headers:
