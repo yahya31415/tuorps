@@ -64,7 +64,7 @@ func Evaluate(s ConnState, now time.Time) Plan {
 	if s.Status == StatusNeedsReauth || s.Status == StatusDisconnected {
 		return Plan{}
 	}
-	deadline := s.deadline()
+	deadline := s.Deadline()
 	igExpired := s.Provider == ProviderInstagram && !s.AccessExpiresAt.IsZero() && !now.Before(s.AccessExpiresAt)
 	if igExpired || (!deadline.IsZero() && !now.Before(deadline)) {
 		return Plan{Actions: []Action{ActionMarkReauth}}
@@ -107,7 +107,9 @@ func Evaluate(s ConnState, now time.Time) Plan {
 	return Plan{Actions: actions, NextDue: earliestAfter(due, now)}
 }
 
-func (s ConnState) deadline() time.Time {
+// Deadline is when the connection stops working unless a person acts (zero:
+// never, because the platform refreshes).
+func (s ConnState) Deadline() time.Time {
 	switch {
 	case s.Provider == ProviderLinkedIn && !s.HasRefreshToken:
 		return s.AccessExpiresAt
