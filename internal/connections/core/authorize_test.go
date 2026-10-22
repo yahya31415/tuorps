@@ -58,7 +58,7 @@ func TestAuthorizeURL(t *testing.T) {
 			"client_id": "client-123", "redirect_uri": "https://app.tuorps.test/v1/oauth/google/callback",
 			"response_type": "code", "state": testState, "access_type": "offline", "prompt": "consent",
 			"include_granted_scopes": "true",
-			"scope": "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
+			"scope":                  "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly",
 		}},
 	}
 	for _, tc := range cases {
