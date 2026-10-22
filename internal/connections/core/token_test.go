@@ -103,3 +103,29 @@ func TestTokenSetDoesNotLeak(t *testing.T) {
 		}
 	}
 }
+
+// Page tokens come from account listings, not token responses, and the
+// platform user is looked up after the exchange; both keep the redaction.
+func TestTokenSetConstructors(t *testing.T) {
+	page := core.BearerToken("SECRET-PAGE", 0)
+	if page.AccessToken() != "SECRET-PAGE" || page.ExpiresIn() != 0 || page.RefreshToken() != "" {
+		t.Errorf("BearerToken = %q %v %q", page.AccessToken(), page.ExpiresIn(), page.RefreshToken())
+	}
+	if !page.Present() || core.BearerToken("", 0).Present() || (core.TokenSet{}).Present() {
+		t.Error("Present() must report whether there is an access token")
+	}
+	ts, err := core.ParseTokenResponse(core.ProviderMeta, []byte(`{"access_token":"SECRET-USER","expires_in":60}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withUser := ts.WithProviderUserID("10228374655566")
+	if withUser.ProviderUserID() != "10228374655566" || withUser.AccessToken() != "SECRET-USER" || ts.ProviderUserID() != "" {
+		t.Errorf("WithProviderUserID = %q, original now %q", withUser.ProviderUserID(), ts.ProviderUserID())
+	}
+	acct := core.Account{Kind: core.KindFacebookPage, ExternalID: "1", DisplayName: "Page", Token: page}
+	for _, out := range []string{fmt.Sprint(acct), fmt.Sprintf("%+v", acct), fmt.Sprintf("%#v", acct)} {
+		if strings.Contains(out, "SECRET") {
+			t.Errorf("account formatting leaks its token: %s", out)
+		}
+	}
+}
