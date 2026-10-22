@@ -14,6 +14,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -267,4 +268,63 @@ func mailpitSubjects(t *testing.T, mp *testinfra.Mailpit) []string {
 		out = append(out, m.Subject)
 	}
 	return out
+}
+
+// Operator alerts have no workspace or user to audit, so they are queued
+// in a plain transaction; they stay sealed and transactional like any email.
+func TestOutboxEnqueueSystem(t *testing.T) {
+	pg := testinfra.MigratedPostgres(t)
+	mk := func(url string) *pgxpool.Pool {
+		p, err := postgres.NewPool(t.Context(), config.DB{URL: config.NewSecret(url), MaxConns: 3, MaxConnLifetime: time.Hour, MaxConnIdleTime: time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(p.Close)
+		return p
+	}
+	migrator, app, admin := mk(pg.MigratorURL), mk(pg.AppURL), mk(pg.AdminURL)
+	log := slog.New(slog.DiscardHandler)
+	if err := jobs.Migrate(t.Context(), migrator, log); err != nil {
+		t.Fatal(err)
+	}
+	inserter, err := jobs.NewInserter(app, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := testKeyring(t)
+	outbox := email.NewOutbox(inserter, k, rand.Reader)
+	alert, err := core.NewMessage(mail.Address{Address: "ops@tuorps.in"}, core.KindVersionSunset, "en", map[string]string{"api": "linkedin", "version": "202610", "sunset": "2027-10-15", "days": "60"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := postgres.InTx(t.Context(), app, postgres.Scope{}, func(tx pgx.Tx) error { return outbox.EnqueueSystem(t.Context(), tx, alert) }); err != nil {
+		t.Fatal(err)
+	}
+	_ = postgres.InTx(t.Context(), app, postgres.Scope{}, func(tx pgx.Tx) error {
+		if err := outbox.EnqueueSystem(t.Context(), tx, alert); err != nil {
+			return err
+		}
+		return errors.New("rollback")
+	})
+	var args []string
+	rows, err := admin.Query(t.Context(), `SELECT args::text FROM tuorps.river_job WHERE kind = 'email.send'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var a string
+		_ = rows.Scan(&a)
+		args = append(args, a)
+	}
+	rows.Close()
+	if len(args) != 1 || strings.Contains(args[0], "ops@tuorps.in") || strings.Contains(args[0], "202610") {
+		t.Errorf("jobs = %v; want one sealed job", args)
+	}
+	if n := func() int {
+		var n int
+		_ = admin.QueryRow(t.Context(), `SELECT count(*) FROM tuorps.audit_log`).Scan(&n)
+		return n
+	}(); n != 0 {
+		t.Errorf("an operator alert wrote %d audit rows", n)
+	}
 }
