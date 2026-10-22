@@ -7,7 +7,7 @@
 | Step 0: CLAUDE.md + TDD guard | ✅ done |
 | M1 Foundation | ✅ done (2026-10-19) |
 | M2 Auth, tenancy, audit and email | ✅ done (2026-10-19) |
-| M3 Account connections and token vault | in progress (Gate 0 approved 2026-10-22) |
+| M3 Account connections and token vault | ✅ done locally (2026-10-22), not pushed; real-app verification pending |
 | M4 Publishing | — |
 | M5 Unified inbox | — |
 | M6 WhatsApp suite | — |
@@ -260,6 +260,83 @@ a normal Docker host: Apple Silicon, Docker 29.9.1, Go 1.27.3.
 Still open: the first CI run of the account flow (`stack-smoke` job) after
 pushing.
 
+## M3: Account connections, token vault, webhooks base, version manager
+
+Plan: `wobbly-hugging-pinwheel`. Decisions are recorded in ADRs 0008–0010
+(with amendments made during implementation).
+
+Delivered:
+- **Gate 0**: `docs/api-reference.md` has a new section, "OAuth, tokens and
+  webhook security", researched from official docs; unconfirmed details are
+  marked. LinkedIn is pinned to `202610` (sunset 2027-10-15).
+- **Core** (`internal/connections/core`, pure):
+  - providers and account kinds;
+  - authorize URLs (no PKCE: no platform documents it for web clients);
+  - token parsing into a redacting `TokenSet`, with an `expires_in` overflow
+    guard;
+  - a closed set of error codes;
+  - webhook signatures (Meta, Instagram with either secret, LinkedIn),
+    challenges, `signed_request` (fuzzed) and `appsecret_proof`;
+  - the maintenance schedule (`Evaluate`, with property tests);
+  - the pinned versions and their sunset alerts.
+- **Schema** `00003_connections.sql`:
+  - brand-scoped `oauth_grants` and `connections` under RLS, with a
+    composite FK that keeps a connection on its grant's brand;
+  - insert-only `webhook_receipts` and `data_deletion_requests`;
+  - narrow definer functions (due sweep, webhook routing, deletion lookups,
+    unused grants, prune);
+  - every query index-backed.
+- **Token vault**: keyring AES-256-GCM, with AAD bound to row and field and
+  re-sealing onto the active key.
+- **OAuth state**: Redis, sealed, consumed atomically with `GETDEL`, valid
+  10 minutes, and bound to the user, the session and the provider.
+- **Adapters**: Meta (Facebook Login for Business), Instagram Login,
+  LinkedIn, Google/YouTube, on `platformhttp`. Redirects are off, bodies are
+  capped, and errors carry no URL, body or token.
+- **HTTP**:
+  - 8 connection routes. Every callback failure redirects to the app.
+    Accounts are fetched again on connect, so only ones the platform offers
+    are accepted. Reconnect moves the connection to the new grant.
+    Disconnect wipes tokens without revoking at the platform.
+  - 11 webhook routes: handshakes, signed deliveries, Meta/Instagram
+    deauthorize and data deletion, and a public status page.
+  - OpenAPI documents all of them, Redocly-clean apart from the two
+    documented callback exceptions.
+- **Worker**: the first periodic jobs:
+  - the maintenance sweep (every 15 min, unique per connection);
+  - per-connection maintenance: refresh, check, 14-day and 3-day warnings,
+    re-auth, reseal;
+  - the unused-grant wipe;
+  - `webhooks.process` for deauthorize and data deletion;
+  - the receipt prune;
+  - `platform.versions` sunset alerts to `OPS_ALERT_EMAIL`.
+- **Ops**:
+  - platform credentials in config: optional, complete sets or startup
+    fails;
+  - compose secrets, opt-in through `*_FILE`;
+  - `dev-secrets` placeholders;
+  - `docs/deployment.md` "Platform apps": URLs to register and settings;
+  - new smoke checks.
+
+### Verification (macOS, Docker Desktop)
+
+- **`make check`**: green. Core coverage 97.3%, overall 86.4%. gosec found
+  3 issues: one fixed, two annotated with the mitigation they rely on.
+  govulncheck: 0 called vulnerabilities.
+- **Stack smoke, dev overlay**: 58/58, including migration 00003 in
+  Compose and the 6 new connection and webhook checks. The worker started
+  and ran `connections.sweep` and `platform.versions` on start with no
+  warnings.
+- **End to end** with fake platforms (`internal/connections/http`): the OAuth
+  flow, 7 callback failure modes, a second session refused, forged account
+  IDs refused, reconnect, disconnect, roles, cross-tenant 404 on every route,
+  archived brands, and audit rows. Session binding and the offered-accounts
+  check were mutation-checked.
+- **Webhook benchmark**: about 1.2 ms per delivery (verify, persist, enqueue,
+  200), against a 100 ms target.
+- **Fuzz**: `FuzzParseSignedRequest` ran 4.6M executions; the two new
+  request decoders are clean.
+
 ## Open questions and follow-ups
 
 1. **Codespace firewall**: Compose bridge networks are dropped by stale
@@ -292,3 +369,24 @@ pushing.
    M2 reconnection-timeout flake. The rerun passed unchanged. Fix with a
    reproducing test first: a narrowly scoped retry in `testinfra` for this
    error, or a testcontainers-go upgrade from v0.44.0 if it fixes it upstream.
+10. **Verify M3 against real platform apps** (development mode, test
+    credentials needed). Every UNCONFIRMED item in `docs/api-reference.md`
+    is coded defensively and should be narrowed after a real run:
+    - which secret signs Instagram Login webhooks and `signed_request`s (both
+      are accepted);
+    - Meta's deauthorize payload;
+    - the LinkedIn `localizedName` field;
+    - Google multi-channel consent.
+11. **The browser app needs pages** for `/connections/select`,
+    `/connections/error`, `/connections/done` and `/data-deletion/<code>`.
+    The API redirects there.
+12. **M5 subscribes accounts to webhooks**: Page `subscribed_apps`, Instagram
+    `subscribed_apps` and LinkedIn `eventSubscriptions`. It needs the
+    member's person URN, which M3's scopes do not give.
+13. **YouTube upload privacy**: the docs conflict on whether unverified
+    projects' uploads are forced private. Ask Google before M4.
+14. **Google RISC** (token-revoked push) could replace the daily check for
+    faster revocation detection.
+15. **Reaper race (#9) seen again** during M3 under heavy Docker load (dev
+    stack running alongside the full suite); stopping the dev stack before
+    `make check` avoided it.

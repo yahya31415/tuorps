@@ -88,3 +88,16 @@ Facts from `docs/api-reference.md` ("Webhook verification and dedupe"):
 - A slow or failing consumer never delays the 200; failures retry in River.
 - If a secret leaks, rotate it in the app dashboard and in Docker secrets.
   The two-secret Instagram check makes overlap during a rotation easy.
+
+## Amendments (2026-10-22, during implementation)
+
+- **Dedupe key.** Every provider uses the SHA-256 of the event kind and the
+  raw body, LinkedIn included. LinkedIn's `notificationId` repeats once per
+  subscriber, so it does not identify one delivery.
+- **Per-account subscriptions move to M5.** The fields to subscribe depend
+  on inbox features. The Instagram-via-Facebook field and the LinkedIn
+  person URN are unconfirmed or unavailable with M3's scopes. M3 ships the
+  endpoints, verification, dedupe and enqueueing, and the app-level
+  deauthorize and data-deletion callbacks; their handling (re-auth, token
+  wipe, request completion) runs in `webhooks.process`.
+- Measured: about 1.2 ms per delivery end to end (`BenchmarkMetaWebhook`).

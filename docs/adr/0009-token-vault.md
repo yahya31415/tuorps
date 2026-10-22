@@ -84,3 +84,20 @@ WhatsApp system-user tokens (M6) do not expire.
   partner with refresh tokens.
 - Google can push token-revoked events (RISC). They are not used in M3; the
   daily check catches revocation within a day. Revisit for faster detection.
+
+## Amendments (2026-10-22, during implementation)
+
+- **Disconnect does not revoke at the platform.** Meta's
+  `DELETE /me/permissions` and Google's revoke cancel every grant of that
+  platform user. That would cut the same person's connections on other
+  brands and in other workspaces. Disconnect wipes Tuorps's tokens instead,
+  and a grant's tokens are wiped once no live connection uses it (also
+  hourly, through `grants_unused`, for logins nobody connected).
+- **Maintenance auditing.** Status changes and expiry warnings are audited:
+  they email people, and the outbox needs an audited transaction. Routine
+  bookkeeping is a plain write in the workspace scope, still under RLS:
+  check times, the next due time, and resealing. That keeps the activity
+  log readable.
+- **Transient failures** set `status = error` with a fixed `last_error` and
+  are looked at again within an hour; only an authentication failure parks
+  a connection as `needs_reauth`.

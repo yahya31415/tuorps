@@ -51,6 +51,9 @@ variables. They are never placed in plain environment variables or images.
 | `garage_rpc_secret`, `garage_admin_token`, `garage_access_key_id`, `garage_secret_key` | garage / storage bootstrap |
 | `encryption_keys` | api, worker: AES-256-GCM keyring (`kid:base64` lines) for TOTP secrets and queued-email payloads |
 | `smtp_password` | worker, only when `SMTP_PASSWORD_FILE=/run/secrets/smtp_password` is set |
+| `meta_app_secret`, `meta_webhook_verify_token` | api, worker, only when `META_APP_SECRET_FILE` / `META_WEBHOOK_VERIFY_TOKEN_FILE` point at them |
+| `instagram_app_secret`, `instagram_webhook_verify_token` | api, worker, likewise (`INSTAGRAM_*_FILE`) |
+| `linkedin_client_secret`, `google_client_secret` | api, worker, likewise (`LINKEDIN_CLIENT_SECRET_FILE`, `GOOGLE_CLIENT_SECRET_FILE`) |
 
 For local development, `make dev-secrets` generates them into `secrets/`
 (gitignored, directory mode 0700). In production, provision them from the
@@ -98,6 +101,11 @@ missing or invalid variable, and never echoes values.
 | `SMTP_USERNAME` / `SMTP_PASSWORD` / `_FILE` | none | A password requires a username. |
 | `SMTP_TIMEOUT` | `10s` | Dial and I/O deadline per send. |
 | `MAIL_FROM` | required by the worker | e.g. `Tuorps <no-reply@mail.example.in>` |
+| `META_APP_ID`, `META_APP_SECRET` / `_FILE`, `META_LOGIN_CONFIG_ID`, `META_WEBHOOK_VERIFY_TOKEN` / `_FILE` | none | Facebook Pages and Instagram via Facebook Login. All four or none. |
+| `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET` / `_FILE`, `INSTAGRAM_WEBHOOK_VERIFY_TOKEN` / `_FILE` | none | Instagram Login (the Instagram app ID and secret, not the Meta app's). All three or none. |
+| `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET` / `_FILE` | none | LinkedIn pages. Both or none. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` / `_FILE` | none | YouTube channels. Both or none. |
+| `OPS_ALERT_EMAIL` | none | Operators' address for platform API version-sunset alerts (worker). Without it, alerts are ERROR log lines only. |
 
 `COOKIE_SECURE` has been removed: the session cookie is always `Secure`
 (ADR 0005). Setting it is a startup error, so stale configuration cannot
@@ -142,3 +150,42 @@ ZeptoMail (Zoho, India data centre) and Postmark work the same way. Locally,
 - The audit log stores a keyed hash of the client IP (HMAC derived from the
   keyring), never the raw IP.
 
+## Platform apps (M3)
+
+Each platform is optional: it is enabled only when all of its variables are
+set, and a partial set stops startup with every missing variable named. Its
+routes always exist; without credentials, connecting answers
+`provider_not_configured` and its webhooks answer 404.
+
+The OAuth callback and the webhooks are served by the API under `/v1/`, on
+the **same origin as the browser app** (`APP_ORIGIN`), so the reverse proxy
+must forward `/v1/*` to the API.
+
+Register these with each platform, exactly:
+
+| Platform | OAuth redirect URI | Webhook / callback URLs |
+| --- | --- | --- |
+| Meta (app with Facebook Login for Business) | `APP_ORIGIN/v1/oauth/meta/callback` | Webhooks (Page and Instagram objects): `APP_ORIGIN/v1/webhooks/meta`, verify token = `secrets/meta_webhook_verify_token`. Deauthorize: `…/v1/webhooks/meta/deauthorize`. Data deletion: `…/v1/webhooks/meta/data-deletion`. |
+| Instagram (API with Instagram Login) | `APP_ORIGIN/v1/oauth/instagram/callback` | Webhooks: `APP_ORIGIN/v1/webhooks/instagram`, verify token = `secrets/instagram_webhook_verify_token`. Deauthorize and data deletion: `…/v1/webhooks/instagram/deauthorize`, `…/v1/webhooks/instagram/data-deletion`. |
+| LinkedIn (Community Management API) | `APP_ORIGIN/v1/oauth/linkedin/callback` | Webhooks tab: `APP_ORIGIN/v1/webhooks/linkedin` (validated by LinkedIn every 2 hours). |
+| Google (OAuth client, web application) | `APP_ORIGIN/v1/oauth/google/callback` | None (YouTube comments are polled). |
+
+Platform settings that matter:
+
+- **Meta**: create a Facebook Login for Business configuration with the
+  *user access token* type and the permissions in `docs/api-reference.md`;
+  its ID is `META_LOGIN_CONFIG_ID`. Turn on **Require App Secret** (Tuorps
+  sends `appsecret_proof` on every Graph call).
+- **Google**: publish the OAuth consent screen (**In production**). While it
+  is in *Testing* with external users, Google expires refresh tokens after
+  7 days and every YouTube connection drops weekly.
+- **LinkedIn**: Tuorps sends `LinkedIn-Version: 202610` (sunset
+  2027-10-15). Without approved-partner refresh tokens, customers reconnect
+  every 60 days; the worker emails brand admins 14 and 3 days ahead.
+- **Data-deletion status**: Meta shows users `APP_ORIGIN/data-deletion/<code>`;
+  the browser app renders it from `GET /v1/data-deletion/{code}`.
+
+The worker refreshes, checks and re-encrypts tokens on a schedule, wipes
+the tokens of logins nobody used for an hour, prunes webhook receipts after
+a week, and checks daily that no pinned platform API version is within 60
+days of its sunset (`OPS_ALERT_EMAIL`).

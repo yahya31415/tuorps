@@ -23,7 +23,23 @@ x-app: &app
     APP_ORIGIN: ${APP_ORIGIN:-http://localhost:8080}
     HTTP_ADDR: ":8080"
     WORKER_HEALTH_ADDR: ":8081"
-  secrets: [database_url, redis_url, encryption_keys]
+    # Platform integrations (optional; docs/deployment.md "Platform apps").
+    # A platform is enabled only by its complete set; point each *_FILE at
+    # /run/secrets/<name> once secrets/<name> holds the real value.
+    META_APP_ID: ${META_APP_ID:-}
+    META_LOGIN_CONFIG_ID: ${META_LOGIN_CONFIG_ID:-}
+    META_APP_SECRET_FILE: ${META_APP_SECRET_FILE:-}
+    META_WEBHOOK_VERIFY_TOKEN_FILE: ${META_WEBHOOK_VERIFY_TOKEN_FILE:-}
+    INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+    INSTAGRAM_APP_SECRET_FILE: ${INSTAGRAM_APP_SECRET_FILE:-}
+    INSTAGRAM_WEBHOOK_VERIFY_TOKEN_FILE: ${INSTAGRAM_WEBHOOK_VERIFY_TOKEN_FILE:-}
+    LINKEDIN_CLIENT_ID: ${LINKEDIN_CLIENT_ID:-}
+    LINKEDIN_CLIENT_SECRET_FILE: ${LINKEDIN_CLIENT_SECRET_FILE:-}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    GOOGLE_CLIENT_SECRET_FILE: ${GOOGLE_CLIENT_SECRET_FILE:-}
+    OPS_ALERT_EMAIL: ${OPS_ALERT_EMAIL:-}
+  secrets: [database_url, redis_url, encryption_keys, meta_app_secret, meta_webhook_verify_token,
+    instagram_app_secret, instagram_webhook_verify_token, linkedin_client_secret, google_client_secret]
   networks: [backend, egress]
   depends_on:
     migrate: { condition: service_completed_successfully }
@@ -127,7 +143,8 @@ services:
       # provider's SMTP password (unset: no SMTP authentication).
       SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:-}
       MAIL_FROM: ${MAIL_FROM:-}
-    secrets: [database_url, redis_url, encryption_keys, smtp_password]
+    secrets: [database_url, redis_url, encryption_keys, meta_app_secret, meta_webhook_verify_token,
+      instagram_app_secret, instagram_webhook_verify_token, linkedin_client_secret, google_client_secret, smtp_password]
     build: { context: ., args: { CMD: worker } }
     command: ["serve"]
     healthcheck:
@@ -160,3 +177,9 @@ secrets:
   garage_admin_token: { file: ./secrets/garage_admin_token }
   encryption_keys: { file: ./secrets/encryption_keys }
   smtp_password: { file: ./secrets/smtp_password }
+  meta_app_secret: { file: ./secrets/meta_app_secret }
+  meta_webhook_verify_token: { file: ./secrets/meta_webhook_verify_token }
+  instagram_app_secret: { file: ./secrets/instagram_app_secret }
+  instagram_webhook_verify_token: { file: ./secrets/instagram_webhook_verify_token }
+  linkedin_client_secret: { file: ./secrets/linkedin_client_secret }
+  google_client_secret: { file: ./secrets/google_client_secret }

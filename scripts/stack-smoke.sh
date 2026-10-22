@@ -139,6 +139,7 @@ check "unknown route answers JSON 404" json_404
 echo "== migrations"
 check "migrate container exited 0" test "$(docker inspect -f '{{.State.ExitCode}}' "$(cid migrate)")" = 0
 check "00001 is applied" bash -c "$compose run --rm -T migrate migrate status | grep -q 'applied.*00001_tenant_context.sql'"
+check "00003 is applied" bash -c "$compose run --rm -T migrate migrate status | grep -q 'applied.*00003_connections.sql'"
 
 echo "== networking"
 check "api can reach the internet (egress network)" has_egress api
@@ -205,6 +206,24 @@ if [ "$mode" = dev ]; then
 else
 	echo "skip  email delivery and the verified flow: the production config has no mail catcher"
 fi
+
+echo "== connections and webhooks"
+# Compose configures no platform credentials by default, so this checks the
+# routes' fail-safe behaviour; the flows themselves are covered by
+# internal/connections/http and internal/webhooks/http tests.
+nil_id="00000000-0000-0000-0000-000000000000"
+# callback_fails_safe: the callback answers 303 to the app's error page.
+callback_fails_safe() {
+	local r
+	r="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$api/v1/oauth/meta/callback?code=zz-smoke-code-123&state=zz-smoke-state")"
+	echo "$r"
+	case "$r" in '303 '*'/connections/error#reason=signed_out') ;; *) return 1 ;; esac
+}
+check "OAuth callback without a session redirects to the app's error page" callback_fails_safe
+check "the connection list needs a session (401)" expect 401 GET "/v1/workspaces/$nil_id/brands/$nil_id/connections"
+check "an unconfigured platform's webhook is not exposed (404)" expect 404 POST /v1/webhooks/meta '{}'
+check "an unknown data-deletion code is 404" expect 404 GET /v1/data-deletion/zz-unknown-code
+check "OAuth codes and states never reach the logs" bash -c "! $compose logs api 2>&1 | grep -qF -e zz-smoke-code-123 -e zz-smoke-state"
 
 echo "== readiness under a dependency outage"
 dc stop redis >/dev/null 2>&1

@@ -39,6 +39,14 @@ put encryption_keys "k1:$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
 # Placeholder: replace with the SMTP provider's password and set
 # SMTP_PASSWORD_FILE=/run/secrets/smtp_password (Mailpit needs none).
 put smtp_password "unused"
+# Placeholders: replace with each platform app's credentials and point the
+# matching *_FILE variable at /run/secrets/<name> (docs/deployment.md). The
+# webhook verify tokens are values you choose and enter in Meta's dashboard.
+for name in meta_app_secret instagram_app_secret linkedin_client_secret google_client_secret; do
+	put "$name" "unused"
+done
+put meta_webhook_verify_token "$(hex 24)"
+put instagram_webhook_verify_token "$(hex 24)"
 
 # Derived values (rewritten when their inputs were).
 put database_url "postgres://tuorps_app:$(get pg_app_password)@postgres:5432/tuorps?sslmode=disable"
