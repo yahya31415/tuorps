@@ -126,3 +126,39 @@ func TestJobs(t *testing.T) {
 		}
 	})
 }
+
+// Maintenance runs on schedules: a worker can be given periodic jobs.
+func TestWorkerRunsPeriodicJobs(t *testing.T) {
+	pg := testinfra.MigratedPostgres(t)
+	log := slog.New(slog.DiscardHandler)
+	if err := jobs.Migrate(t.Context(), pool(t, pg.MigratorURL), log); err != nil {
+		t.Fatal(err)
+	}
+	app := pool(t, pg.AppURL)
+	seen := make(chan string, 8)
+	workers := river.NewWorkers()
+	river.AddWorker(workers, &pingWorker{seen: seen})
+	every := river.NewPeriodicJob(river.PeriodicInterval(time.Hour), func() (river.JobArgs, *river.InsertOpts) {
+		return pingArgs{Note: "periodic"}, nil
+	}, &river.PeriodicJobOpts{RunOnStart: true})
+	runner, err := jobs.NewWorker(app, workers, log, every)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = runner.Stop(ctx)
+	})
+	select {
+	case got := <-seen:
+		if got != "periodic" {
+			t.Fatalf("worker saw %q", got)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("periodic job never ran")
+	}
+}
