@@ -320,7 +320,7 @@ func (m *Maintainer) save(ctx context.Context, scope postgres.Scope, p pass, bef
 		if p.email == "" {
 			return nil
 		}
-		return m.notify(ctx, tx, p)
+		return notify(ctx, m.WorkerDeps, tx, p.c, p.email, p.days)
 	})
 }
 
@@ -337,25 +337,25 @@ func statusEvent(p pass, before core.Status) auditcore.Event {
 	return ev
 }
 
-// notify emails the workspace owners and the brand's admins.
-func (m *Maintainer) notify(ctx context.Context, tx audit.Tx, p pass) error {
-	rows, err := q(tx.Pgx()).Recipients(ctx, sqlcgen.RecipientsParams{BrandID: p.c.BrandID, WorkspaceID: tx.Scope().WorkspaceID})
+// notify emails the workspace owners and the brand's admins about c.
+func notify(ctx context.Context, d WorkerDeps, tx audit.Tx, c Connection, kind emailcore.Kind, days int) error {
+	rows, err := q(tx.Pgx()).Recipients(ctx, sqlcgen.RecipientsParams{BrandID: c.BrandID, WorkspaceID: tx.Scope().WorkspaceID})
 	if err != nil {
 		return err
 	}
-	link := emailcore.Link(m.Origin, "/connections", map[string]string{
-		"workspace": tx.Scope().WorkspaceID.String(), "brand": p.c.BrandID.String(), "connection": p.c.ID.String(),
+	link := emailcore.Link(d.Origin, "/connections", map[string]string{
+		"workspace": tx.Scope().WorkspaceID.String(), "brand": c.BrandID.String(), "connection": c.ID.String(),
 	})
 	for _, r := range rows {
-		data := map[string]string{"name": r.DisplayName, "account": p.c.DisplayName, "platform": platformName(p.c), "link": link}
-		if p.email == emailcore.KindConnectionExpiring {
-			data["days"] = strconv.Itoa(p.days)
+		data := map[string]string{"name": r.DisplayName, "account": c.DisplayName, "platform": platformName(c), "link": link}
+		if kind == emailcore.KindConnectionExpiring {
+			data["days"] = strconv.Itoa(days)
 		}
-		msg, err := emailcore.NewMessage(mail.Address{Name: r.DisplayName, Address: r.Email}, p.email, r.Locale, data)
+		msg, err := emailcore.NewMessage(mail.Address{Name: r.DisplayName, Address: r.Email}, kind, r.Locale, data)
 		if err != nil {
 			return fmt.Errorf("connections: email: %w", err)
 		}
-		if err := m.Mailer.Enqueue(ctx, tx, msg); err != nil {
+		if err := d.Mailer.Enqueue(ctx, tx, msg); err != nil {
 			return err
 		}
 	}
