@@ -50,9 +50,10 @@ func NewInserter(pool *pgxpool.Pool, log *slog.Logger) (*Client, error) {
 	return c, nil
 }
 
-// NewWorker returns a client that works the default queue with workers
-// (the worker process). Call Start and, on shutdown, Stop.
-func NewWorker(pool *pgxpool.Pool, workers *river.Workers, log *slog.Logger) (*Client, error) {
+// NewWorker returns a client that works the default queue with workers and
+// schedules the periodic jobs (the worker process). Call Start and, on
+// shutdown, Stop.
+func NewWorker(pool *pgxpool.Pool, workers *river.Workers, log *slog.Logger, periodic ...*river.PeriodicJob) (*Client, error) {
 	c, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Logger:                      log,
 		Workers:                     workers,
@@ -60,6 +61,7 @@ func NewWorker(pool *pgxpool.Pool, workers *river.Workers, log *slog.Logger) (*C
 		CompletedJobRetentionPeriod: CompletedRetention,
 		JobTimeout:                  jobTimeout,
 		MaxAttempts:                 maxAttempts,
+		PeriodicJobs:                periodic,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("jobs: worker: %w", err)
