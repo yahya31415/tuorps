@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"crypto/sha256"
 	"net/http"
 	"uuid"
 
@@ -50,13 +51,27 @@ func sessionToken(r *http.Request) string {
 	return ""
 }
 
+// SessionHash is the SHA-256 of the caller's session token: it binds
+// short-lived flows (OAuth) to one session without storing the token.
+func (id Identity) SessionHash() [32]byte { return sha256.Sum256([]byte(id.token)) }
+
+// LookupSession returns the caller of r, if r carries a live session. It
+// writes nothing, for handlers that must answer failures their own way.
+func LookupSession(r *http.Request, sessions auth.SessionStore) (Identity, bool, error) {
+	tok := sessionToken(r)
+	s, ok, err := sessions.Get(r.Context(), tok)
+	if err != nil || !ok {
+		return Identity{}, false, err
+	}
+	return Identity{UserID: s.UserID, MFAVerified: s.MFAVerified, token: tok}, true, nil
+}
+
 // RequireSession admits requests with a live session and attaches the
 // caller's Identity; others get 401.
 func RequireSession(sessions auth.SessionStore) httpx.Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tok := sessionToken(r)
-			s, ok, err := sessions.Get(r.Context(), tok)
+			id, ok, err := LookupSession(r, sessions)
 			if err != nil {
 				httpx.WriteError(w, r, http.StatusServiceUnavailable, "session_store_unavailable", "please retry shortly")
 				return
@@ -65,7 +80,6 @@ func RequireSession(sessions auth.SessionStore) httpx.Middleware {
 				httpx.WriteError(w, r, http.StatusUnauthorized, "unauthenticated", "sign in to continue")
 				return
 			}
-			id := Identity{UserID: s.UserID, MFAVerified: s.MFAVerified, token: tok}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 		})
 	}
