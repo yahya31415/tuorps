@@ -102,3 +102,35 @@ func userID(v jsontext.Value) (string, bool) {
 func splitScopes(s string) []string {
 	return slices.DeleteFunc(strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' }), func(x string) bool { return x == "" })
 }
+
+// BearerToken wraps a token that arrives without a token response, such as
+// a Facebook Page token from an account listing. expiresIn 0: none stated.
+func BearerToken(access string, expiresIn time.Duration) TokenSet {
+	return TokenSet{access: access, expiresIn: expiresIn}
+}
+
+// Present reports whether t holds an access token.
+func (t TokenSet) Present() bool { return t.access != "" }
+
+// WithProviderUserID returns a copy of t naming the platform user it
+// belongs to (looked up after the exchange).
+func (t TokenSet) WithProviderUserID(id string) TokenSet {
+	t.providerUserID = id
+	return t
+}
+
+// Account is a connectable account a login exposes. Token is the account's
+// own token (a Facebook Page token), or empty when the grant's token is used.
+type Account struct {
+	Kind        Kind
+	ExternalID  string
+	DisplayName string
+	Token       TokenSet
+}
+
+// Health is a token check's result. Zero times: none reported.
+type Health struct {
+	Valid               bool
+	ExpiresAt           time.Time
+	DataAccessExpiresAt time.Time
+}
