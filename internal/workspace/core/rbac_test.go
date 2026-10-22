@@ -2,6 +2,7 @@ package core_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -96,6 +97,40 @@ func TestCanMatrix(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Every member of a brand may see its connected accounts; only brand admins
+// (and the owner) may connect, reconnect or disconnect them (ADR 0008).
+func TestConnectionPermissions(t *testing.T) {
+	for _, tc := range []struct {
+		role         core.Role
+		read, manage bool
+	}{
+		{core.RoleViewer, true, false},
+		{core.RoleAgent, true, false},
+		{core.RolePublisher, true, false},
+		{core.RoleAdmin, true, true},
+	} {
+		p := principal(t, false, map[uuid.UUID]core.Role{brandA(): tc.role})
+		if got := core.Can(p, core.PermConnectionRead, brandA()); got != tc.read {
+			t.Errorf("%s: read = %v, want %v", tc.role, got, tc.read)
+		}
+		if got := core.Can(p, core.PermConnectionManage, brandA()); got != tc.manage {
+			t.Errorf("%s: manage = %v, want %v", tc.role, got, tc.manage)
+		}
+		if core.Can(p, core.PermConnectionRead, brandB()) || core.Can(p, core.PermConnectionManage, brandB()) {
+			t.Errorf("%s of brand A has connection rights on brand B", tc.role)
+		}
+	}
+	if owner := principal(t, true, nil); !core.Can(owner, core.PermConnectionManage, brandB()) {
+		t.Error("owner cannot manage connections")
+	}
+	all := core.AllPermissions()
+	for _, perm := range []core.Permission{core.PermConnectionRead, core.PermConnectionManage} {
+		if !slices.Contains(all, perm) {
+			t.Errorf("AllPermissions() misses %s, so the property tests skip it", perm)
+		}
 	}
 }
 
