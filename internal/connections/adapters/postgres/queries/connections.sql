@@ -26,17 +26,18 @@ VALUES (@id, @workspace_id, @brand_id, @grant_id, @kind, @external_id, @display_
     'active', sqlc.narg('token_expires_at'), sqlc.narg('next_due_at'), @now, @now);
 
 -- name: GetConnection :one
-SELECT id, brand_id, grant_id, kind, external_id, display_name, token_enc, token_key_id, status,
-    token_expires_at, last_checked_at, last_error, warned_days, next_due_at, created_at
-FROM connections WHERE workspace_id = @workspace_id AND brand_id = @brand_id AND id = @id;
+SELECT c.id, c.brand_id, c.grant_id, g.provider, c.kind, c.external_id, c.display_name, c.token_enc, c.token_key_id, c.status,
+    c.token_expires_at, c.last_checked_at, c.last_error, c.warned_days, c.next_due_at, c.created_at
+FROM connections c JOIN oauth_grants g ON g.workspace_id = c.workspace_id AND g.brand_id = c.brand_id AND g.id = c.grant_id
+WHERE c.workspace_id = @workspace_id AND c.brand_id = @brand_id AND c.id = @id;
 
 -- name: ListConnections :many
 -- Keyset by id. Index: connections_brand (workspace_id, brand_id, id).
-SELECT id, brand_id, grant_id, kind, external_id, display_name, token_enc, token_key_id, status,
-    token_expires_at, last_checked_at, last_error, warned_days, next_due_at, created_at
-FROM connections
-WHERE workspace_id = @workspace_id AND brand_id = @brand_id AND id > @after
-ORDER BY id LIMIT @page_size;
+SELECT c.id, c.brand_id, c.grant_id, g.provider, c.kind, c.external_id, c.display_name, c.token_enc, c.token_key_id, c.status,
+    c.token_expires_at, c.last_checked_at, c.last_error, c.warned_days, c.next_due_at, c.created_at
+FROM connections c JOIN oauth_grants g ON g.workspace_id = c.workspace_id AND g.brand_id = c.brand_id AND g.id = c.grant_id
+WHERE c.workspace_id = @workspace_id AND c.brand_id = @brand_id AND c.id > @after
+ORDER BY c.id LIMIT @page_size;
 
 -- name: DisconnectConnection :execrows
 UPDATE connections SET status = 'disconnected', token_enc = NULL, next_due_at = NULL, updated_at = @now

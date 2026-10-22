@@ -38,9 +38,10 @@ func (q *Queries) DisconnectConnection(ctx context.Context, arg DisconnectConnec
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT id, brand_id, grant_id, kind, external_id, display_name, token_enc, token_key_id, status,
-    token_expires_at, last_checked_at, last_error, warned_days, next_due_at, created_at
-FROM connections WHERE workspace_id = $1 AND brand_id = $2 AND id = $3
+SELECT c.id, c.brand_id, c.grant_id, g.provider, c.kind, c.external_id, c.display_name, c.token_enc, c.token_key_id, c.status,
+    c.token_expires_at, c.last_checked_at, c.last_error, c.warned_days, c.next_due_at, c.created_at
+FROM connections c JOIN oauth_grants g ON g.workspace_id = c.workspace_id AND g.brand_id = c.brand_id AND g.id = c.grant_id
+WHERE c.workspace_id = $1 AND c.brand_id = $2 AND c.id = $3
 `
 
 type GetConnectionParams struct {
@@ -53,6 +54,7 @@ type GetConnectionRow struct {
 	ID             uuid.UUID
 	BrandID        uuid.UUID
 	GrantID        uuid.UUID
+	Provider       string
 	Kind           string
 	ExternalID     string
 	DisplayName    string
@@ -74,6 +76,7 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (G
 		&i.ID,
 		&i.BrandID,
 		&i.GrantID,
+		&i.Provider,
 		&i.Kind,
 		&i.ExternalID,
 		&i.DisplayName,
@@ -232,11 +235,11 @@ func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error 
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT id, brand_id, grant_id, kind, external_id, display_name, token_enc, token_key_id, status,
-    token_expires_at, last_checked_at, last_error, warned_days, next_due_at, created_at
-FROM connections
-WHERE workspace_id = $1 AND brand_id = $2 AND id > $3
-ORDER BY id LIMIT $4
+SELECT c.id, c.brand_id, c.grant_id, g.provider, c.kind, c.external_id, c.display_name, c.token_enc, c.token_key_id, c.status,
+    c.token_expires_at, c.last_checked_at, c.last_error, c.warned_days, c.next_due_at, c.created_at
+FROM connections c JOIN oauth_grants g ON g.workspace_id = c.workspace_id AND g.brand_id = c.brand_id AND g.id = c.grant_id
+WHERE c.workspace_id = $1 AND c.brand_id = $2 AND c.id > $3
+ORDER BY c.id LIMIT $4
 `
 
 type ListConnectionsParams struct {
@@ -250,6 +253,7 @@ type ListConnectionsRow struct {
 	ID             uuid.UUID
 	BrandID        uuid.UUID
 	GrantID        uuid.UUID
+	Provider       string
 	Kind           string
 	ExternalID     string
 	DisplayName    string
@@ -283,6 +287,7 @@ func (q *Queries) ListConnections(ctx context.Context, arg ListConnectionsParams
 			&i.ID,
 			&i.BrandID,
 			&i.GrantID,
+			&i.Provider,
 			&i.Kind,
 			&i.ExternalID,
 			&i.DisplayName,

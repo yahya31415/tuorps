@@ -685,6 +685,222 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/brands/{brand}/connections/authorize:
+    post:
+      operationId: authorizeConnection
+      summary: Start connecting a platform account (owner or brand admin)
+      description: |
+        Returns the platform's consent URL. Its single-use `state` is bound to
+        this user, session, brand and provider for 10 minutes (ADR 0008).
+        Starting flows is limited per user.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeRequest"
+      responses:
+        "200":
+          description: The consent URL to send the browser to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ProviderNotConfigured"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/workspaces/{ws}/brands/{brand}/connections/{id}/reconnect:
+    post:
+      operationId: reconnectConnection
+      summary: Start a fresh login for a connection (owner or brand admin)
+      description: |
+        Like authorize, for the connection's platform. When the callback's
+        login still offers the account, the connection moves to the new
+        login and becomes active again.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/Connection"
+      responses:
+        "200":
+          description: The consent URL to send the browser to.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ProviderNotConfigured"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /v1/oauth/{provider}/callback:
+    get:
+      operationId: oauthCallback
+      summary: Platform redirect target that completes a login
+      description: |
+        Always answers 303. Success goes to
+        `APP_ORIGIN/connections/select#grant=…&brand=…&workspace=…` (or
+        `/connections/done#connection=…` for a reconnect); every failure goes
+        to `APP_ORIGIN/connections/error#reason=…`, with reason one of
+        signed_out, invalid_state, denied, provider_error, not_configured,
+        forbidden, exchange_failed, account_missing, unavailable. Data travels
+        in the fragment so it never reaches logs or Referer headers.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Provider"
+        - {name: code, in: query, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string}}
+        - {name: error, in: query, schema: {type: string}}
+      responses:
+        "303":
+          description: Redirect to the browser app.
+          headers:
+            Location:
+              schema: {type: string, format: uri}
+  /v1/workspaces/{ws}/brands/{brand}/grants/{grant}/accounts:
+    get:
+      operationId: listConnectableAccounts
+      summary: Accounts a completed login can connect (its own user only)
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/Grant"
+      responses:
+        "200":
+          description: OK (the whole list; next_cursor is always null).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectableAccountList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/GrantExpired"
+        "502":
+          $ref: "#/components/responses/ProviderUnavailable"
+  /v1/workspaces/{ws}/brands/{brand}/connections:
+    get:
+      operationId: listConnections
+      summary: A brand's connections
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionList"
+        "400":
+          $ref: "#/components/responses/InvalidPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      operationId: createConnections
+      summary: Connect accounts offered by a login (owner or brand admin)
+      description: |
+        The platform is asked again for the login's accounts; only accounts
+        it offers are accepted. All are connected or none.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConnectRequest"
+      responses:
+        "201":
+          description: Connected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AlreadyConnected"
+        "422":
+          $ref: "#/components/responses/UnknownAccount"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/ProviderUnavailable"
+  /v1/workspaces/{ws}/brands/{brand}/connections/{id}:
+    get:
+      operationId: getConnection
+      summary: A connection
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/Connection"
+      responses:
+        "200":
+          description: OK.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Connection"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: disconnectConnection
+      summary: Disconnect (owner or brand admin)
+      description: |
+        Wipes the connection's token, and its login's tokens once nothing
+        else uses them. The platform grant is not revoked, because that would
+        also cut other brands' connections made by the same platform user.
+      tags: [connections]
+      parameters:
+        - $ref: "#/components/parameters/Workspace"
+        - $ref: "#/components/parameters/Brand"
+        - $ref: "#/components/parameters/Connection"
+      responses:
+        "204":
+          $ref: "#/components/responses/NoContent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /v1/workspaces/{ws}/brands/{brand}/members/{user}:
     put:
       operationId: setBrandRole
@@ -938,6 +1154,21 @@ components:
       in: path
       required: true
       schema: {type: string, format: uuid}
+    Connection:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Grant:
+      name: grant
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+    Provider:
+      name: provider
+      in: path
+      required: true
+      schema: {$ref: "#/components/schemas/Provider"}
     Cursor:
       name: cursor
       in: query
@@ -1127,6 +1358,80 @@ components:
         items:
           type: array
           items: {$ref: "#/components/schemas/Brand"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    Provider:
+      type: string
+      enum: [meta, instagram, linkedin, google]
+      description: meta is Facebook Login for Business (Pages and linked Instagram accounts); instagram is Instagram Login.
+    AuthorizeRequest:
+      type: object
+      additionalProperties: false
+      required: [provider]
+      properties:
+        provider: {$ref: "#/components/schemas/Provider"}
+    AuthorizeResponse:
+      type: object
+      required: [authorize_url]
+      properties:
+        authorize_url: {type: string, format: uri}
+    ConnectRequest:
+      type: object
+      additionalProperties: false
+      required: [grant_id, external_ids]
+      properties:
+        grant_id: {type: string, format: uuid}
+        external_ids:
+          type: array
+          minItems: 1
+          maxItems: 50
+          uniqueItems: true
+          items: {type: string, minLength: 1, maxLength: 128}
+    ConnectableAccount:
+      type: object
+      required: [kind, external_id, display_name, connected]
+      properties:
+        kind: {$ref: "#/components/schemas/AccountKind"}
+        external_id: {type: string}
+        display_name: {type: string}
+        connected: {type: boolean, description: Already connected to this brand.}
+    ConnectableAccountList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ConnectableAccount"}
+        next_cursor: {$ref: "#/components/schemas/NextCursor"}
+    AccountKind:
+      type: string
+      enum: [facebook_page, instagram_account, linkedin_org, youtube_channel, whatsapp_number]
+    Connection:
+      type: object
+      required: [id, brand_id, provider, kind, external_id, display_name, status, expiring, expires_at, last_checked_at, last_error, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        brand_id: {type: string, format: uuid}
+        provider: {$ref: "#/components/schemas/Provider"}
+        kind: {$ref: "#/components/schemas/AccountKind"}
+        external_id: {type: string}
+        display_name: {type: string}
+        status:
+          type: string
+          enum: [active, error, needs_reauth, disconnected]
+        expiring: {type: boolean, description: The connection's token expires within 14 days.}
+        expires_at: {type: [string, "null"], format: date-time}
+        last_checked_at: {type: [string, "null"], format: date-time}
+        last_error:
+          type: [string, "null"]
+          enum: [reauth_required, rate_limited, provider_unavailable, rejected, null]
+        created_at: {type: string, format: date-time}
+    ConnectionList:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Connection"}
         next_cursor: {$ref: "#/components/schemas/NextCursor"}
     Role:
       type: string
@@ -1412,6 +1717,56 @@ components:
             error:
               value:
                 error: {code: mfa_not_enabled, message: "…"}
+    ProviderNotConfigured:
+      description: Invalid provider (validation_failed), or a platform this deployment has no credentials for (provider_not_configured).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: provider_not_configured, message: "…"}
+    AlreadyConnected:
+      description: One of the accounts is already connected in this workspace (already_connected).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: already_connected, message: "…"}
+    UnknownAccount:
+      description: Invalid body (validation_failed), or an account the login does not offer (unknown_account).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: unknown_account, message: "…"}
+    GrantExpired:
+      description: The platform no longer accepts this login (grant_expired); connect again.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: grant_expired, message: "…"}
+    ProviderUnavailable:
+      description: The platform is unavailable or refused the call (provider_unavailable, provider_error).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            error:
+              value:
+                error: {code: provider_unavailable, message: "…"}
     RateLimited:
       description: Too many requests (rate_limited).
       headers:

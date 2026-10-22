@@ -70,9 +70,10 @@ type NewConnection struct {
 }
 
 // Connection is a stored connection; NULLs read as empty strings and zero
-// times.
+// times. Provider is its grant's.
 type Connection struct {
 	ID, BrandID, GrantID uuid.UUID
+	Provider             core.Provider
 	Kind                 core.Kind
 	ExternalID           string
 	DisplayName          string
@@ -165,7 +166,7 @@ func Disconnect(ctx context.Context, tx audit.Tx, brand, id uuid.UUID, now time.
 
 func connection(r sqlcgen.GetConnectionRow) Connection {
 	return Connection{
-		ID: r.ID, BrandID: r.BrandID, GrantID: r.GrantID, Kind: core.Kind(r.Kind),
+		ID: r.ID, BrandID: r.BrandID, GrantID: r.GrantID, Provider: core.Provider(r.Provider), Kind: core.Kind(r.Kind),
 		ExternalID: r.ExternalID, DisplayName: r.DisplayName,
 		TokenEnc: str(r.TokenEnc), TokenKeyID: str(r.TokenKeyID), Status: core.Status(r.Status),
 		TokenExpiresAt: tm(r.TokenExpiresAt), LastCheckedAt: tm(r.LastCheckedAt),

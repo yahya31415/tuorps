@@ -3,6 +3,8 @@ package app
 import (
 	"crypto/rand"
 	"fmt"
+	"github.com/yahya31415/tuorps/internal/connections"
+	connhttp "github.com/yahya31415/tuorps/internal/connections/http"
 	"log/slog"
 	"net/http"
 	"time"
@@ -24,7 +26,10 @@ import (
 	wshttp "github.com/yahya31415/tuorps/internal/workspace/http"
 )
 
-const mfaChallengeTTL = 5 * time.Minute
+const (
+	mfaChallengeTTL = 5 * time.Minute
+	oauthStateTTL   = 10 * time.Minute
+)
 
 // API is the assembled HTTP API.
 type API struct {
@@ -93,6 +98,28 @@ func BuildAPI(cfg config.Config, deps *Deps, log *slog.Logger) (*API, error) {
 		NewID:    ids.System(),
 		Rand:     rand.Reader,
 		Log:      log,
+	}); err != nil {
+		return nil, err
+	}
+
+	platforms := deps.Platforms
+	if platforms == nil {
+		platforms = Platforms(cfg)
+	}
+	if err := connhttp.Register(rt, connhttp.Deps{
+		Pool:      deps.Pool,
+		Writer:    writer,
+		Sessions:  sessions,
+		States:    connections.NewStateStore(deps.Redis, keys, rand.Reader, oauthStateTTL),
+		Vault:     connections.NewVault(keys, rand.Reader),
+		Platforms: platforms,
+		Keys:      keys,
+		Limiter:   limiter,
+		ClientIP:  resolver,
+		Origin:    cfg.AppOrigin,
+		Now:       now,
+		NewID:     ids.System(),
+		Log:       log,
 	}); err != nil {
 		return nil, err
 	}

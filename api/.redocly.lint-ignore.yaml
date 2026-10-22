@@ -1,0 +1,8 @@
+# The OAuth callback (GET /v1/oauth/{provider}/callback) is a browser
+# redirect target: every outcome, success or failure, is a 303 to the app
+# (ADR 0008), so it has no 2xx or 4xx response by design.
+openapi.yaml:
+  operation-2xx-response:
+    - '#/paths/~1v1~1oauth~1{provider}~1callback/get/responses'
+  operation-4xx-response:
+    - '#/paths/~1v1~1oauth~1{provider}~1callback/get/responses'

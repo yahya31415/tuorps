@@ -5,6 +5,8 @@ package app
 import (
 	"context"
 	"errors"
+	connscore "github.com/yahya31415/tuorps/internal/connections/core"
+	connhttp "github.com/yahya31415/tuorps/internal/connections/http"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,6 +26,9 @@ import (
 type Deps struct {
 	Pool  *pgxpool.Pool
 	Redis *redis.Client
+	// Platforms overrides the platform integrations built from config
+	// (tests substitute fakes); nil means use config.
+	Platforms map[connscore.Provider]connhttp.Platform
 }
 
 // Open connects to Postgres and Redis, failing fast if either is unreachable.

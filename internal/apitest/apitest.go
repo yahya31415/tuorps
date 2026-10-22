@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	connscore "github.com/yahya31415/tuorps/internal/connections/core"
+	connhttp "github.com/yahya31415/tuorps/internal/connections/http"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,8 +49,16 @@ type API struct {
 	nextIP atomic.Uint32
 }
 
+// Option adjusts the API Start builds.
+type Option func(*app.Deps)
+
+// WithPlatforms replaces the platform integrations (tests use fakes).
+func WithPlatforms(p map[connscore.Provider]connhttp.Platform) Option {
+	return func(d *app.Deps) { d.Platforms = p }
+}
+
 // Start runs the API and stops it when tb ends.
-func Start(tb testing.TB) *API {
+func Start(tb testing.TB, opts ...Option) *API {
 	tb.Helper()
 	pg := testinfra.MigratedPostgres(tb)
 	rd := testinfra.StartRedis(tb)
@@ -81,6 +91,9 @@ func Start(tb testing.TB) *API {
 		tb.Fatal(err)
 	}
 	tb.Cleanup(func() { _ = deps.Close() })
+	for _, o := range opts {
+		o(deps)
+	}
 	built, err := app.BuildAPI(cfg, deps, log)
 	if err != nil {
 		tb.Fatal(err)
@@ -111,9 +124,12 @@ func (a *API) Client() *Client {
 	n := a.nextIP.Add(1)
 	jar, _ := cookiejar.New(nil)
 	return &Client{
-		api:  a,
-		http: &http.Client{Transport: a.Server.Client().Transport, Jar: jar, Timeout: 30 * time.Second},
-		ip:   fmt.Sprintf("10.%d.%d.%d", n>>16&255, n>>8&255, n&255),
+		api: a,
+		http: &http.Client{Transport: a.Server.Client().Transport, Jar: jar, Timeout: 30 * time.Second,
+			// The API's redirects (the OAuth callback) point at the browser
+			// app; tests inspect them instead of following them.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		ip: fmt.Sprintf("10.%d.%d.%d", n>>16&255, n>>8&255, n&255),
 	}
 }
 
