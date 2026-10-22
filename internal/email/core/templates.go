@@ -54,6 +54,21 @@ func english() map[Kind]template {
 			text:    "Hi {{.name}},\n\nTwo-factor authentication was turned off for your Tuorps account.\n\nIf this was not you, reset your password and turn two-factor authentication back on.\n",
 			html:    `<p>Hi {{.name}},</p><p>Two-factor authentication was turned off for your Tuorps account.</p><p>If this was not you, reset your password and turn two-factor authentication back on.</p>`,
 		},
+		KindConnectionExpiring: {
+			subject: "Your {{.platform}} connection {{.account}} stops working in {{.days}} days",
+			text:    "Hi {{.name}},\n\nThe {{.platform}} account {{.account}} connected to Tuorps stops working in {{.days}} days, when its login expires. Reconnect it to keep publishing and receiving messages:\n{{.link}}\n",
+			html:    `<p>Hi {{.name}},</p><p>The {{.platform}} account <strong>{{.account}}</strong> connected to Tuorps stops working in {{.days}} days, when its login expires. Reconnect it to keep publishing and receiving messages:</p><p><a href="{{.link}}">Reconnect {{.account}}</a></p>`,
+		},
+		KindConnectionNeedsReauth: {
+			subject: "Reconnect {{.account}} on {{.platform}}",
+			text:    "Hi {{.name}},\n\nTuorps can no longer reach the {{.platform}} account {{.account}}: its login expired or was removed. Reconnect it to resume publishing and messages:\n{{.link}}\n",
+			html:    `<p>Hi {{.name}},</p><p>Tuorps can no longer reach the {{.platform}} account <strong>{{.account}}</strong>: its login expired or was removed. Reconnect it to resume publishing and messages:</p><p><a href="{{.link}}">Reconnect {{.account}}</a></p>`,
+		},
+		KindVersionSunset: {
+			subject: "Platform API {{.api}} {{.version}} sunsets in {{.days}} days",
+			text:    "The pinned {{.api}} API version {{.version}} sunsets on {{.sunset}}, in {{.days}} days. Move to a newer version and update docs/api-reference.md before then.\n",
+			html:    `<p>The pinned <strong>{{.api}}</strong> API version {{.version}} sunsets on {{.sunset}}, in {{.days}} days. Move to a newer version and update docs/api-reference.md before then.</p>`,
+		},
 		KindAccountExists: {
 			subject: "Someone tried to sign up with your email",
 			text:    "Hi {{.name}},\n\nSomeone tried to create a Tuorps account with this email address, but you already have one. If it was you, sign in or reset your password:\n{{.link}}\n\nIf it was not you, no action is needed.\n",

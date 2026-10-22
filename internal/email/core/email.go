@@ -39,6 +39,10 @@ const (
 	KindMFAEnabled      Kind = "mfa_enabled"
 	KindMFADisabled     Kind = "mfa_disabled"
 	KindAccountExists   Kind = "account_exists" // someone tried to sign up with this address
+
+	KindConnectionExpiring    Kind = "connection_expiring"     // a connected account stops working soon
+	KindConnectionNeedsReauth Kind = "connection_needs_reauth" // a connected account stopped working
+	KindVersionSunset         Kind = "ops_version_sunset"      // to operators: a pinned API version sunsets soon
 )
 
 // requiredData lists the data keys each kind needs, exactly.
@@ -50,6 +54,12 @@ func requiredData(k Kind) ([]string, bool) {
 		return []string{"inviter", "link", "workspace"}, true
 	case KindPasswordChanged, KindMFAEnabled, KindMFADisabled:
 		return []string{"name"}, true
+	case KindConnectionExpiring:
+		return []string{"account", "days", "link", "name", "platform"}, true
+	case KindConnectionNeedsReauth:
+		return []string{"account", "link", "name", "platform"}, true
+	case KindVersionSunset:
+		return []string{"api", "days", "sunset", "version"}, true
 	}
 	return nil, false
 }
