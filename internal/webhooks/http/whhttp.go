@@ -132,6 +132,7 @@ func handshake(w http.ResponseWriter, r *http.Request, verifyToken string) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	// #nosec G705 -- echoed only after core.ValidHubChallenge (1-32 ASCII digits), as text/plain
 	_, _ = io.WriteString(w, q.Get("hub.challenge"))
 }
 

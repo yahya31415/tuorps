@@ -47,6 +47,7 @@ func New(p core.Provider, timeout time.Duration, maxBody int64) Client {
 // Do sends req and returns the body of a 2xx response. op names the call in
 // errors ("exchange", "refresh", ...).
 func (c Client) Do(req *http.Request, op string) ([]byte, error) {
+	// #nosec G704 -- adapters build every URL on their fixed platform base URL and follow paging links only on that host (e.g. meta.onGraphHost); redirects are disabled above
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// The transport error embeds the URL; only its class survives.

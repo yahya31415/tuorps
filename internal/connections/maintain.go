@@ -293,7 +293,7 @@ func (m *Maintainer) save(ctx context.Context, scope postgres.Scope, p pass, bef
 	write := func(tx pgx.Tx) error {
 		if _, err := q(tx).UpdateConnectionHealth(ctx, sqlcgen.UpdateConnectionHealthParams{
 			Status: string(p.c.Status), LastError: nullString(string(p.c.LastError)), LastCheckedAt: nullTime(p.c.LastCheckedAt),
-			WarnedDays: int16(p.c.WarnedDays), NextDueAt: nullTime(p.c.NextDueAt), TokenEnc: nullString(p.c.TokenEnc),
+			WarnedDays: warnedDaysColumn(p.c.WarnedDays), NextDueAt: nullTime(p.c.NextDueAt), TokenEnc: nullString(p.c.TokenEnc),
 			TokenExpiresAt: nullTime(p.c.TokenExpiresAt), UpdatedAt: now, WorkspaceID: scope.WorkspaceID, ID: p.c.ID,
 		}); err != nil {
 			return err
@@ -322,6 +322,17 @@ func (m *Maintainer) save(ctx context.Context, scope postgres.Scope, p pass, bef
 		}
 		return notify(ctx, m.WorkerDeps, tx, p.c, p.email, p.days)
 	})
+}
+
+// warnedDaysColumn is the warned_days column value: 0, 3 or 14.
+func warnedDaysColumn(d int) int16 {
+	switch d {
+	case 14:
+		return 14
+	case 3:
+		return 3
+	}
+	return 0
 }
 
 func statusEvent(p pass, before core.Status) auditcore.Event {
