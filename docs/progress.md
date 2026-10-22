@@ -235,6 +235,13 @@ Delivered:
     exiting.
   - Fix: `make test` sets `RYUK_RECONNECTION_TIMEOUT=5m`.
 
+## Next session: verify on a normal Docker host
+
+The Codespace could not run the Compose stack end to end, because Docker
+bridge traffic is dropped there. `docs/handoff.md` lists what remains to
+verify on the Mac before M3: the full stack smoke in both modes, the
+Mailpit manual check, and the first CI run of the account flow.
+
 ## Open questions and follow-ups
 
 1. **Codespace firewall**: Compose bridge networks are dropped by stale
