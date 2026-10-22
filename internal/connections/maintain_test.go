@@ -48,6 +48,7 @@ func (f *fakePlatform) ports() connections.Provider {
 
 type maintFixture struct {
 	fixture
+	deps  connections.WorkerDeps
 	keys  *keyring.Keyring
 	vault connections.Vault
 	m     *connections.Maintainer
@@ -82,10 +83,11 @@ func newMaintFixture(t *testing.T) *maintFixture {
 		ports[p] = fp.ports()
 	}
 	origin, _ := url.Parse("https://app.tuorps.test")
-	mf.m = connections.NewMaintainer(connections.WorkerDeps{
-		Pool: f.pool, Writer: f.w, Vault: mf.vault, Keys: keys, Providers: ports,
+	mf.deps = connections.WorkerDeps{
+		Pool: f.pool, Writer: f.w, Vault: mf.vault, Keys: keys, Providers: ports, Inserter: inserter,
 		Mailer: email.NewOutbox(inserter, keys, rand.Reader), Origin: origin, Now: clock.Fixed(f.now), Log: log,
-	})
+	}
+	mf.m = connections.NewMaintainer(mf.deps)
 	return mf
 }
 
