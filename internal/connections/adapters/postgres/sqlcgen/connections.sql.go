@@ -306,6 +306,58 @@ func (q *Queries) ListConnections(ctx context.Context, arg ListConnectionsParams
 	return items, nil
 }
 
+const liveConnectionsOnGrant = `-- name: LiveConnectionsOnGrant :one
+SELECT count(*) FROM connections
+WHERE workspace_id = $1 AND brand_id = $2 AND grant_id = $3 AND status <> 'disconnected'
+`
+
+type LiveConnectionsOnGrantParams struct {
+	WorkspaceID uuid.UUID
+	BrandID     uuid.UUID
+	GrantID     uuid.UUID
+}
+
+func (q *Queries) LiveConnectionsOnGrant(ctx context.Context, arg LiveConnectionsOnGrantParams) (int64, error) {
+	row := q.db.QueryRow(ctx, liveConnectionsOnGrant, arg.WorkspaceID, arg.BrandID, arg.GrantID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const repointConnection = `-- name: RepointConnection :execrows
+UPDATE connections SET grant_id = $1, token_enc = $2, token_expires_at = $3,
+    status = 'active', last_error = NULL, warned_days = 0, last_checked_at = $4, next_due_at = $5, updated_at = $4
+WHERE workspace_id = $6 AND brand_id = $7 AND id = $8 AND status <> 'disconnected'
+`
+
+type RepointConnectionParams struct {
+	GrantID        uuid.UUID
+	TokenEnc       *string
+	TokenExpiresAt *time.Time
+	Now            *time.Time
+	NextDueAt      *time.Time
+	WorkspaceID    uuid.UUID
+	BrandID        uuid.UUID
+	ID             uuid.UUID
+}
+
+func (q *Queries) RepointConnection(ctx context.Context, arg RepointConnectionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, repointConnection,
+		arg.GrantID,
+		arg.TokenEnc,
+		arg.TokenExpiresAt,
+		arg.Now,
+		arg.NextDueAt,
+		arg.WorkspaceID,
+		arg.BrandID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const wipeGrantTokens = `-- name: WipeGrantTokens :execrows
 UPDATE oauth_grants SET access_token_enc = NULL, refresh_token_enc = NULL, updated_at = $1
 WHERE workspace_id = $2 AND brand_id = $3 AND id = $4

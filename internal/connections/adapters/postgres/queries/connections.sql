@@ -41,3 +41,12 @@ ORDER BY id LIMIT @page_size;
 -- name: DisconnectConnection :execrows
 UPDATE connections SET status = 'disconnected', token_enc = NULL, next_due_at = NULL, updated_at = @now
 WHERE workspace_id = @workspace_id AND brand_id = @brand_id AND id = @id AND status <> 'disconnected';
+
+-- name: RepointConnection :execrows
+UPDATE connections SET grant_id = @grant_id, token_enc = sqlc.narg('token_enc'), token_expires_at = sqlc.narg('token_expires_at'),
+    status = 'active', last_error = NULL, warned_days = 0, last_checked_at = @now, next_due_at = sqlc.narg('next_due_at'), updated_at = @now
+WHERE workspace_id = @workspace_id AND brand_id = @brand_id AND id = @id AND status <> 'disconnected';
+
+-- name: LiveConnectionsOnGrant :one
+SELECT count(*) FROM connections
+WHERE workspace_id = @workspace_id AND brand_id = @brand_id AND grant_id = @grant_id AND status <> 'disconnected';

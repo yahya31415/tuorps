@@ -235,3 +235,28 @@ func tm(p *time.Time) time.Time {
 	}
 	return p.UTC()
 }
+
+// Repoint is a reconnected connection's new grant and token.
+type Repoint struct {
+	GrantID        uuid.UUID
+	TokenEnc       string // the account's own token, or empty
+	TokenExpiresAt time.Time
+	NextDueAt      time.Time
+	Now            time.Time
+}
+
+// RepointConnection moves a live connection to a new grant and resets its
+// health (active, no error, no warnings, checked now).
+func RepointConnection(ctx context.Context, tx audit.Tx, brand, id uuid.UUID, p Repoint) error {
+	now := p.Now
+	return affected(q(tx.Pgx()).RepointConnection(ctx, sqlcgen.RepointConnectionParams{
+		GrantID: p.GrantID, TokenEnc: nullString(p.TokenEnc), TokenExpiresAt: nullTime(p.TokenExpiresAt),
+		Now: &now, NextDueAt: nullTime(p.NextDueAt), WorkspaceID: tx.Scope().WorkspaceID, BrandID: brand, ID: id,
+	}))
+}
+
+// LiveConnectionsOnGrant counts the connections still using a grant.
+func LiveConnectionsOnGrant(ctx context.Context, tx pgx.Tx, ws, brand, grant uuid.UUID) (int64, error) {
+	n, err := q(tx).LiveConnectionsOnGrant(ctx, sqlcgen.LiveConnectionsOnGrantParams{WorkspaceID: ws, BrandID: brand, GrantID: grant})
+	return n, mapErr(err)
+}
