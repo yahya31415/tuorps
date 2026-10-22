@@ -76,8 +76,10 @@ func Register(rt *httpx.Router, d Deps) error {
 	}
 	h := &handlers{Deps: d, ipKey: d.Keys.DeriveKey("audit-ip"), writeLimit: ratelimit.Rule{Class: "write_user", Limit: l}}
 	session := authhttp.RequireSession(d.Sessions)
-	user := func(f http.HandlerFunc) http.Handler { return session(h.limitWrites(f)) }
-	inWS := func(f http.HandlerFunc) http.Handler { return session(h.limitWrites(h.withWorkspace(f))) }
+	limitWrites := LimitWrites(d.Limiter, h.writeLimit)
+	withWorkspace := WithWorkspace(d.Pool, d.Log)
+	user := func(f http.HandlerFunc) http.Handler { return session(limitWrites(f)) }
+	inWS := func(f http.HandlerFunc) http.Handler { return session(limitWrites(withWorkspace(f))) }
 
 	rt.Handle("GET /v1/workspaces", user(h.listMine))
 	rt.Handle("POST /v1/workspaces", user(h.create))
@@ -100,52 +102,66 @@ func Register(rt *httpx.Router, d Deps) error {
 	return nil
 }
 
-// limitWrites applies the per-user write limit to mutating requests
-// (fail-open: a Redis outage must not stop customers working).
-func (h *handlers) limitWrites(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			id, _ := authhttp.IdentityFrom(r.Context())
-			if d, err := h.Limiter.Allow(r.Context(), h.writeLimit, id.UserID.String()); err != nil || !d.Allowed {
-				ratelimit.Reject(w, r, d, err)
-				return
+// LimitWrites applies rule per user to mutating requests (fail-open unless
+// the rule says otherwise: a Redis outage must not stop customers working).
+// It runs after authhttp.RequireSession.
+func LimitWrites(l ratelimit.Limiter, rule ratelimit.Rule) httpx.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				id, _ := authhttp.IdentityFrom(r.Context())
+				if d, err := l.Allow(r.Context(), rule, id.UserID.String()); err != nil || !d.Allowed {
+					ratelimit.Reject(w, r, d, err)
+					return
+				}
 			}
-		}
-		next.ServeHTTP(w, r)
-	})
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 type principalKey struct{}
 
+// PrincipalFrom returns the principal WithWorkspace loaded for the request.
+func PrincipalFrom(ctx context.Context) (core.Principal, bool) {
+	p, ok := ctx.Value(principalKey{}).(core.Principal)
+	return p, ok
+}
+
 func principalFrom(ctx context.Context) core.Principal {
-	p, _ := ctx.Value(principalKey{}).(core.Principal)
+	p, _ := PrincipalFrom(ctx)
 	return p
 }
 
-// withWorkspace loads the caller's principal for {ws}; non-members get 404.
-func (h *handlers) withWorkspace(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, _ := authhttp.IdentityFrom(r.Context())
-		ws, err := uuid.Parse(r.PathValue("ws"))
-		if err != nil {
-			notFound(w, r)
-			return
-		}
-		var p core.Principal
-		err = postgres.InReadTx(r.Context(), h.Pool, postgres.Scope{WorkspaceID: ws, UserID: id.UserID}, func(tx pgx.Tx) error {
-			var err error
-			p, err = workspace.LoadPrincipal(r.Context(), tx, postgres.Scope{WorkspaceID: ws, UserID: id.UserID})
-			return err
+// WithWorkspace loads the caller's principal for the {ws} path value under
+// row-level security; a malformed workspace or a non-member gets 404. It
+// runs after authhttp.RequireSession.
+func WithWorkspace(pool *pgxpool.Pool, log *slog.Logger) httpx.Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id, _ := authhttp.IdentityFrom(r.Context())
+			ws, err := uuid.Parse(r.PathValue("ws"))
+			if err != nil {
+				notFound(w, r)
+				return
+			}
+			scope := postgres.Scope{WorkspaceID: ws, UserID: id.UserID}
+			var p core.Principal
+			err = postgres.InReadTx(r.Context(), pool, scope, func(tx pgx.Tx) error {
+				var err error
+				p, err = workspace.LoadPrincipal(r.Context(), tx, scope)
+				return err
+			})
+			switch {
+			case errors.Is(err, workspace.ErrNotFound):
+				notFound(w, r)
+			case err != nil:
+				internalError(w, r, log, "principal", err)
+			default:
+				next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+			}
 		})
-		switch {
-		case errors.Is(err, workspace.ErrNotFound):
-			notFound(w, r)
-		case err != nil:
-			h.internalError(w, r, "principal", err)
-		default:
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
-		}
-	})
+	}
 }
 
 func scopeOf(p core.Principal) postgres.Scope {
@@ -161,7 +177,11 @@ func forbidden(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handlers) internalError(w http.ResponseWriter, r *http.Request, op string, err error) {
-	h.Log.ErrorContext(r.Context(), "workspace handler failed", "op", op, "err", err.Error(), "request_id", httpx.RequestIDFrom(r.Context()))
+	internalError(w, r, h.Log, op, err)
+}
+
+func internalError(w http.ResponseWriter, r *http.Request, log *slog.Logger, op string, err error) {
+	log.ErrorContext(r.Context(), "workspace handler failed", "op", op, "err", err.Error(), "request_id", httpx.RequestIDFrom(r.Context()))
 	httpx.WriteError(w, r, http.StatusInternalServerError, "internal", "internal error")
 }
 
