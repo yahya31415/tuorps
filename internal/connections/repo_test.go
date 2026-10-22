@@ -33,6 +33,7 @@ func brA2() uuid.UUID   { return id("00000000ba02") }
 func brB1() uuid.UUID   { return id("00000000bb01") }
 
 type fixture struct {
+	pg    *testinfra.Postgres
 	pool  *pgxpool.Pool
 	admin *pgxpool.Pool
 	w     audit.Writer
@@ -50,7 +51,7 @@ func newFixture(t *testing.T) fixture {
 		t.Cleanup(p.Close)
 		return p
 	}
-	f := fixture{pool: mk(pg.AppURL), admin: mk(pg.AdminURL), now: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
+	f := fixture{pg: pg, pool: mk(pg.AppURL), admin: mk(pg.AdminURL), now: time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)}
 	f.w = audit.NewWriter(f.pool, ids.System(), clock.Fixed(f.now))
 	for _, u := range []struct {
 		id    uuid.UUID
@@ -357,3 +358,5 @@ func TestReconnectRepository(t *testing.T) {
 		}
 	})
 }
+
+type pgxTx = pgx.Tx
