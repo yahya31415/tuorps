@@ -39,6 +39,31 @@ func TestRedactsSensitiveKeysWhateverTheirValue(t *testing.T) {
 	}
 }
 
+// OAuth authorization codes, state values and verifiers are bearer-like
+// secrets for a few minutes; Meta and Instagram post a signed_request.
+// They are redacted by key, but only as whole keys (or the unambiguous
+// "verifier"/"signed_request"), so diagnostic keys such as status_code stay.
+func TestRedactsOAuthKeys(t *testing.T) {
+	for _, k := range []string{"code", "Code", "auth_code", "state", "oauth_state", "code_verifier", "codeVerifier", "signed_request", "signedRequest"} {
+		t.Run(k, func(t *testing.T) {
+			var buf bytes.Buffer
+			newLogger(&buf).Info("x", k, "visible-value-123")
+			if out := buf.String(); strings.Contains(out, "visible-value-123") || !strings.Contains(out, "[REDACTED]") {
+				t.Fatalf("value under %q not redacted: %s", k, out)
+			}
+		})
+	}
+	for _, k := range []string{"status_code", "error_code", "http_status", "connection_status", "statement"} {
+		t.Run("keeps "+k, func(t *testing.T) {
+			var buf bytes.Buffer
+			newLogger(&buf).Info("x", k, "visible-value-123")
+			if out := buf.String(); !strings.Contains(out, "visible-value-123") {
+				t.Fatalf("value under %q over-redacted: %s", k, out)
+			}
+		})
+	}
+}
+
 func TestKeepsOrdinaryAttributes(t *testing.T) {
 	var buf bytes.Buffer
 	newLogger(&buf).Info("request done", "status", 200, "path", "/v1/posts", "request_id", "0199c3f0-7a2b-7c3d-8e4f-5a6b7c8d9e0f", "duration_ms", 12)
