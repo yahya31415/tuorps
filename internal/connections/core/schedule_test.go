@@ -160,3 +160,24 @@ func TestPropertyEvaluateSchedule(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The deadline is when a connection stops working unless a person acts:
+// LinkedIn without a refresh token at token expiry; Meta at data-access
+// expiry; refreshable providers have none.
+func TestDeadline(t *testing.T) {
+	exp, data := now.Add(10*dayDur), now.Add(20*dayDur)
+	for _, tc := range []struct {
+		s    core.ConnState
+		want time.Time
+	}{
+		{core.ConnState{Provider: core.ProviderLinkedIn, AccessExpiresAt: exp}, exp},
+		{core.ConnState{Provider: core.ProviderLinkedIn, AccessExpiresAt: exp, HasRefreshToken: true}, time.Time{}},
+		{core.ConnState{Provider: core.ProviderMeta, AccessExpiresAt: exp, DataAccessExpiresAt: data}, data},
+		{core.ConnState{Provider: core.ProviderInstagram, AccessExpiresAt: exp}, time.Time{}},
+		{core.ConnState{Provider: core.ProviderGoogle, AccessExpiresAt: exp}, time.Time{}},
+	} {
+		if got := tc.s.Deadline(); !got.Equal(tc.want) {
+			t.Errorf("%s (refresh %v): Deadline = %s, want %s", tc.s.Provider, tc.s.HasRefreshToken, got, tc.want)
+		}
+	}
+}
