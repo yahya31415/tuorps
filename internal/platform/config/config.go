@@ -72,6 +72,7 @@ type Config struct {
 	Auth             Auth
 	TrustedProxies   []netip.Prefix // proxies whose X-Forwarded-For is honoured
 	Encryption       Encryption
+	Platforms        Platforms
 }
 
 // FieldError describes one invalid or missing variable. Err is always a
@@ -213,6 +214,7 @@ func Load(lookup Lookup, readFile ReadFile) (Config, error) {
 		r.fail("DB_MIN_CONNS", errMinMax)
 	}
 	r.readAuth(&cfg)
+	r.readPlatforms(&cfg)
 	if len(r.errs) > 0 {
 		return Config{}, errors.Join(r.errs...)
 	}

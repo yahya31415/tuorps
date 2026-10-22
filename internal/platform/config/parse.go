@@ -40,7 +40,7 @@ func sentinelErrors() []error {
 		errDuration, errPositive, errNonNeg, errSize, errAddr, errEnv,
 		errLevel, errScheme, errURL, errFile, errMinMax,
 		errOrigin, errHTTPSRequired, errRemoved, errIdleAbsolute, errCIDR, errKeyring, errActiveKey,
-		errPort, errSMTPTLS, errSMTPPlain, errMailFrom, errSMTPUsername,
+		errPort, errSMTPTLS, errSMTPPlain, errMailFrom, errSMTPUsername, errOpsEmail,
 	}
 }
 
