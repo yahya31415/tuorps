@@ -40,3 +40,23 @@ func ParsePage(r *http.Request, def, max int32) (Page, error) {
 	}
 	return p, nil
 }
+
+// ListResponse is a keyset page: items, and next_cursor when more may follow.
+type ListResponse[T any] struct {
+	Items      []T     `json:"items"`
+	NextCursor *string `json:"next_cursor"`
+}
+
+// NewList builds a page from items fetched with limit. Items is never nil,
+// and NextCursor points past the last item only when the page is full.
+func NewList[T any](items []T, limit int32, lastID func(T) uuid.UUID) ListResponse[T] {
+	out := ListResponse[T]{Items: items}
+	if out.Items == nil {
+		out.Items = []T{}
+	}
+	if len(items) > 0 && len(items) == int(limit) {
+		c := EncodeCursor(lastID(items[len(items)-1]))
+		out.NextCursor = &c
+	}
+	return out
+}

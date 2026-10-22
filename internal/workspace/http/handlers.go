@@ -143,7 +143,7 @@ func (h *handlers) listMine(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(x workspaceJSON) uuid.UUID { return x.ID }))
+	_ = httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, pg.Limit, func(x workspaceJSON) uuid.UUID { return x.ID }))
 }
 
 func (h *handlers) create(w http.ResponseWriter, r *http.Request) {
@@ -211,7 +211,7 @@ func (h *handlers) listBrands(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(b brandJSON) uuid.UUID { return b.ID }))
+	_ = httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, pg.Limit, func(b brandJSON) uuid.UUID { return b.ID }))
 }
 
 func (h *handlers) createBrand(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +363,7 @@ func (h *handlers) listMembers(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(m memberJSON) uuid.UUID { return m.UserID }))
+	_ = httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, pg.Limit, func(m memberJSON) uuid.UUID { return m.UserID }))
 }
 
 func (h *handlers) removeMember(w http.ResponseWriter, r *http.Request) {
@@ -412,7 +412,7 @@ func (h *handlers) listInvitations(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(i invitationJSON) uuid.UUID { return i.ID }))
+	_ = httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, pg.Limit, func(i invitationJSON) uuid.UUID { return i.ID }))
 }
 
 func (h *handlers) createInvitation(w http.ResponseWriter, r *http.Request) {
@@ -576,5 +576,5 @@ func (h *handlers) auditLog(w http.ResponseWriter, r *http.Request) {
 	for i, rec := range recs {
 		items[i] = auditJSON{ID: rec.ID, ActorUserID: rec.ActorUserID, Action: rec.Action, TargetType: rec.TargetType, TargetID: rec.TargetID, RequestID: rec.RequestID, Details: rec.Details, At: rec.At}
 	}
-	_ = httpx.WriteJSON(w, http.StatusOK, newList(items, pg.Limit, func(a auditJSON) uuid.UUID { return a.ID }))
+	_ = httpx.WriteJSON(w, http.StatusOK, httpx.NewList(items, pg.Limit, func(a auditJSON) uuid.UUID { return a.ID }))
 }

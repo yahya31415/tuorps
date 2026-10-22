@@ -221,21 +221,3 @@ func page(w http.ResponseWriter, r *http.Request) (httpx.Page, bool) {
 	}
 	return p, true
 }
-
-// listResponse is a keyset page; next_cursor is set when more may follow.
-type listResponse[T any] struct {
-	Items      []T     `json:"items"`
-	NextCursor *string `json:"next_cursor"`
-}
-
-func newList[T any](items []T, limit int32, lastID func(T) uuid.UUID) listResponse[T] {
-	out := listResponse[T]{Items: items}
-	if out.Items == nil {
-		out.Items = []T{}
-	}
-	if len(items) > 0 && len(items) == int(limit) {
-		c := httpx.EncodeCursor(lastID(items[len(items)-1]))
-		out.NextCursor = &c
-	}
-	return out
-}
