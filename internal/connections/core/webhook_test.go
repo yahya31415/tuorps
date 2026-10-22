@@ -106,3 +106,12 @@ func TestVerifyToken(t *testing.T) {
 		}
 	}
 }
+
+// Every Graph call carries appsecret_proof: hex HMAC-SHA256 of the access
+// token keyed with the app secret (docs/api-reference.md, Meta section).
+func TestAppSecretProof(t *testing.T) {
+	const want = "fe6f92a58b98a2cb3a49904c4e82d0b8b4d14f536c7d2847ff7c90d5153ed39f" // openssl
+	if got := core.AppSecretProof("EAAtesttoken123", []byte(metaSecret)); got != want {
+		t.Fatalf("AppSecretProof = %s, want %s", got, want)
+	}
+}
