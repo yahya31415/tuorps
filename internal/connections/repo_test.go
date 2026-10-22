@@ -276,3 +276,84 @@ func TestConnectionsRepository(t *testing.T) {
 		}
 	})
 }
+
+// Reconnecting moves a live connection to the new grant and resets its
+// health; the old grant may be wiped once no live connection uses it.
+func TestReconnectRepository(t *testing.T) {
+	f := newFixture(t)
+	asA := scope(wsA(), ownerA())
+	oldGrant, newGrant, conn := id("000000004a01"), id("000000004a02"), id("000000005a01")
+	if err := f.write(t, asA, func(tx audit.Tx) error {
+		for _, g := range []uuid.UUID{oldGrant, newGrant} {
+			if err := connections.InsertGrant(t.Context(), tx, f.grant(g, brA1())); err != nil {
+				return err
+			}
+		}
+		return connections.InsertConnection(t.Context(), tx, f.conn(conn, brA1(), oldGrant, "page-1"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.admin.Exec(t.Context(), `UPDATE tuorps.connections SET status = 'needs_reauth', last_error = 'reauth_required', warned_days = 3, next_due_at = NULL WHERE id = $1`, conn); err != nil {
+		t.Fatal(err)
+	}
+
+	live := func(g uuid.UUID) int64 {
+		t.Helper()
+		var n int64
+		if err := f.read(t, asA, func(tx pgx.Tx) error {
+			var err error
+			n, err = connections.LiveConnectionsOnGrant(t.Context(), tx, wsA(), brA1(), g)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if live(oldGrant) != 1 || live(newGrant) != 0 {
+		t.Fatalf("before: old %d, new %d", live(oldGrant), live(newGrant))
+	}
+
+	later := f.now.Add(time.Hour)
+	if err := f.write(t, asA, func(tx audit.Tx) error {
+		return connections.RepointConnection(t.Context(), tx, brA1(), conn, connections.Repoint{GrantID: newGrant, TokenEnc: "v1.k1.newpage", NextDueAt: later.Add(24 * time.Hour), Now: later})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.read(t, asA, func(tx pgx.Tx) error {
+		c, err := connections.GetConnection(t.Context(), tx, wsA(), brA1(), conn)
+		if err != nil {
+			return err
+		}
+		if c.GrantID != newGrant || c.Status != core.StatusActive || c.LastError != "" || c.WarnedDays != 0 ||
+			c.TokenEnc != "v1.k1.newpage" || !c.LastCheckedAt.Equal(later) || !c.NextDueAt.Equal(later.Add(24*time.Hour)) {
+			t.Errorf("after repoint = %+v", c)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if live(oldGrant) != 0 || live(newGrant) != 1 {
+		t.Errorf("after: old %d, new %d", live(oldGrant), live(newGrant))
+	}
+
+	t.Run("a disconnected connection is not repointed", func(t *testing.T) {
+		if err := f.write(t, asA, func(tx audit.Tx) error { return connections.Disconnect(t.Context(), tx, brA1(), conn, later) }); err != nil {
+			t.Fatal(err)
+		}
+		err := f.write(t, asA, func(tx audit.Tx) error {
+			return connections.RepointConnection(t.Context(), tx, brA1(), conn, connections.Repoint{GrantID: oldGrant, Now: later})
+		})
+		if !errors.Is(err, connections.ErrNotFound) {
+			t.Errorf("repoint after disconnect: %v", err)
+		}
+	})
+
+	t.Run("another workspace cannot repoint", func(t *testing.T) {
+		err := f.write(t, scope(wsB(), ownerB()), func(tx audit.Tx) error {
+			return connections.RepointConnection(t.Context(), tx, brA1(), conn, connections.Repoint{GrantID: newGrant, Now: later})
+		})
+		if !errors.Is(err, connections.ErrNotFound) {
+			t.Errorf("repoint from B: %v", err)
+		}
+	})
+}
