@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"io"
 	"net/mail"
 	"strings"
@@ -59,6 +60,17 @@ func NewOutbox(inserter *jobs.Client, keys *keyring.Keyring, rand io.Reader) Out
 
 // Enqueue schedules m for delivery when tx commits.
 func (o Outbox) Enqueue(ctx context.Context, tx audit.Tx, m core.Message) error {
+	return o.enqueue(ctx, tx.Pgx(), m)
+}
+
+// EnqueueSystem schedules an operator email (such as a version-sunset
+// alert) in a plain transaction: it concerns no workspace or user, so there
+// is nothing to audit. Customer email goes through Enqueue.
+func (o Outbox) EnqueueSystem(ctx context.Context, tx pgx.Tx, m core.Message) error {
+	return o.enqueue(ctx, tx, m)
+}
+
+func (o Outbox) enqueue(ctx context.Context, tx pgx.Tx, m core.Message) error {
 	payload, err := m.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("email: encode: %w", err)
@@ -67,7 +79,7 @@ func (o Outbox) Enqueue(ctx context.Context, tx audit.Tx, m core.Message) error 
 	if err != nil {
 		return fmt.Errorf("email: seal: %w", err)
 	}
-	if _, err := o.inserter.InsertTx(ctx, tx.Pgx(), SendArgs{Sealed: sealed.Encode()}, &river.InsertOpts{MaxAttempts: maxAttempts}); err != nil {
+	if _, err := o.inserter.InsertTx(ctx, tx, SendArgs{Sealed: sealed.Encode()}, &river.InsertOpts{MaxAttempts: maxAttempts}); err != nil {
 		return fmt.Errorf("email: enqueue: %w", err)
 	}
 	return nil
