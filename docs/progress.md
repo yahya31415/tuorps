@@ -285,3 +285,10 @@ pushing.
    belong with email preferences.
 8. **Non-browser clients** (mobile, public API) will need a bearer-token
    scheme alongside the cookie (ADR 0005).
+9. **Testcontainers reaper race on macOS** (2026-10-22, 1 failure in 3
+   `make check` runs on Docker Desktop): a package failed to start Postgres
+   with `wait for reaper …: unexpected container status "created"`. That is
+   another package's reaper caught mid-creation, which is different from the
+   M2 reconnection-timeout flake. The rerun passed unchanged. Fix with a
+   reproducing test first: a narrowly scoped retry in `testinfra` for this
+   error, or a testcontainers-go upgrade from v0.44.0 if it fixes it upstream.
