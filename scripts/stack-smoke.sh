@@ -24,6 +24,8 @@
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib/net.sh
+. "$root/scripts/lib/net.sh"
 compose="${COMPOSE:-docker compose -f $root/compose.yaml -f $root/compose.dev.yaml}"
 api="${API_URL:-http://127.0.0.1:8080}"
 mailpit="${MAILPIT_URL:-http://127.0.0.1:8025}"
@@ -80,7 +82,6 @@ has_egress() {
 	done
 	return 1
 }
-tcp_open() { timeout 5 bash -c "exec 3<>/dev/tcp/$1/$2"; }
 json_404() { curl -s -D - -o /dev/null "$api/nope" | grep -qi '^content-type: application/json'; }
 
 # call METHOD PATH [JSON] [COOKIE]: prints "<status> <body>" from the API.
