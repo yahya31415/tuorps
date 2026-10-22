@@ -16,16 +16,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/riverqueue/river"
-
 	"github.com/yahya31415/tuorps/internal/app"
-	"github.com/yahya31415/tuorps/internal/email"
-	emailadapters "github.com/yahya31415/tuorps/internal/email/adapters"
 	healthhttp "github.com/yahya31415/tuorps/internal/health/http"
-	"github.com/yahya31415/tuorps/internal/platform/clock"
 	"github.com/yahya31415/tuorps/internal/platform/config"
 	"github.com/yahya31415/tuorps/internal/platform/httpx"
-	"github.com/yahya31415/tuorps/internal/platform/ids"
 	"github.com/yahya31415/tuorps/internal/platform/jobs"
 	"github.com/yahya31415/tuorps/internal/platform/lifecycle"
 	"github.com/yahya31415/tuorps/internal/platform/logx"
@@ -73,19 +67,17 @@ func serve(ctx context.Context, lookup config.Lookup, readFile config.ReadFile, 
 		return err
 	}
 	log := logx.New(stdout, cfg.LogLevel).With("component", "worker")
-	keys, err := cfg.Encryption.Keyring()
-	if err != nil {
-		return err
-	}
 	deps, err := app.Open(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = deps.Close() }()
 
-	workers := river.NewWorkers()
-	email.Register(workers, email.NewWorker(keys, emailadapters.NewSMTP(smtpCfg, nil), smtpCfg.From, ids.System(), clock.System()))
-	queue, err := jobs.NewWorker(deps.Pool, workers, log)
+	workers, periodic, err := app.WorkerJobs(cfg, deps, smtpCfg, log)
+	if err != nil {
+		return err
+	}
+	queue, err := jobs.NewWorker(deps.Pool, workers, log, periodic...)
 	if err != nil {
 		return err
 	}

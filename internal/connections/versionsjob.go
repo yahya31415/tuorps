@@ -28,7 +28,7 @@ type SystemMailer interface {
 type VersionDeps struct {
 	Pool     *pgxpool.Pool
 	Mailer   SystemMailer
-	OpsEmail string                     // empty: log only
+	OpsEmail string                      // empty: log only
 	Versions func() []core.PinnedVersion // core.PinnedVersions outside tests
 	Now      clock.Now
 	Log      *slog.Logger
