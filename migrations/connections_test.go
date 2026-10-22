@@ -220,6 +220,37 @@ func TestConnectionsMigration(t *testing.T) {
 		}
 	})
 
+	t.Run("grants nobody connected are found for wiping, once old enough", func(t *testing.T) {
+		const unused = "0199c3f0-0000-7000-8000-000000004a09"
+		if _, err := admin.ExecContext(t.Context(), `INSERT INTO tuorps.oauth_grants (id, workspace_id, brand_id, provider, access_token_enc, created_by, created_at, updated_at)
+			VALUES ($1, $2, $3, 'linkedin', 'v1.k1.EEEE', $4, $5, $5)`, unused, wsA, brA2, uA, connNow.Add(-2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		r, err := app.QueryContext(t.Context(), `SELECT id, workspace_id, brand_id FROM grants_unused($1)`, connNow.Add(-time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for r.Next() {
+			var id, ws, brand string
+			_ = r.Scan(&id, &ws, &brand)
+			got = append(got, id+"@"+ws+"/"+brand)
+		}
+		_ = r.Close()
+		// gA has a live connection; gB too; only the unused grant qualifies.
+		if !sameSet(got, unused+"@"+wsA+"/"+brA2) {
+			t.Errorf("unused grants = %v", got)
+		}
+		r, err = app.QueryContext(t.Context(), `SELECT id FROM grants_unused($1)`, connNow.Add(-3*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Next() {
+			t.Error("a grant younger than the cut-off was returned")
+		}
+		_ = r.Close()
+	})
+
 	t.Run("webhook receipts are pruned by age through a function", func(t *testing.T) {
 		if _, err := admin.ExecContext(t.Context(), `INSERT INTO tuorps.webhook_receipts (provider, dedupe_key, received_at) VALUES ('linkedin', 'old', $1), ('linkedin', 'new', $2)`, connNow.Add(-8*24*time.Hour), connNow); err != nil {
 			t.Fatal(err)
