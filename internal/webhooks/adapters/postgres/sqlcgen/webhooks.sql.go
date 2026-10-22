@@ -64,3 +64,14 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) (i
 	}
 	return result.RowsAffected(), nil
 }
+
+const pruneReceipts = `-- name: PruneReceipts :one
+SELECT webhook_receipts_prune($1::timestamptz)::bigint AS pruned
+`
+
+func (q *Queries) PruneReceipts(ctx context.Context, before time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, pruneReceipts, before)
+	var pruned int64
+	err := row.Scan(&pruned)
+	return pruned, err
+}

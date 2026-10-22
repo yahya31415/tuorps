@@ -11,3 +11,6 @@ VALUES (@confirmation_code, @provider, @provider_user_id, 'pending', @requested_
 
 -- name: DeletionStatus :one
 SELECT COALESCE(data_deletion_status(@confirmation_code::text), '')::text AS status;
+
+-- name: PruneReceipts :one
+SELECT webhook_receipts_prune(@before::timestamptz)::bigint AS pruned;
