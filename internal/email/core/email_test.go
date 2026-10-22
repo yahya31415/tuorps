@@ -54,6 +54,12 @@ func TestRenderEveryKind(t *testing.T) {
 		{core.KindMFAEnabled, map[string]string{"name": "Priya"}, []string{"Priya", "two-factor"}},
 		{core.KindMFADisabled, map[string]string{"name": "Priya"}, []string{"Priya", "two-factor"}},
 		{core.KindAccountExists, map[string]string{"name": "Priya", "link": link}, []string{"Priya", link}},
+		{core.KindConnectionExpiring, map[string]string{"name": "Priya", "account": "Kerala Spices", "platform": "LinkedIn", "days": "14", "link": link},
+			[]string{"Priya", "Kerala Spices", "LinkedIn", "14 days", link}},
+		{core.KindConnectionNeedsReauth, map[string]string{"name": "Priya", "account": "Kerala Spices", "platform": "Facebook", "link": link},
+			[]string{"Priya", "Kerala Spices", "Facebook", "reconnect", link}},
+		{core.KindVersionSunset, map[string]string{"api": "linkedin", "version": "202610", "sunset": "2027-10-15", "days": "60"},
+			[]string{"linkedin", "202610", "2027-10-15", "60 days"}},
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.kind), func(t *testing.T) {
