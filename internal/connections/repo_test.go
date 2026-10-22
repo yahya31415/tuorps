@@ -137,7 +137,7 @@ func TestConnectionsRepository(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if c.GrantID != grantA || c.Kind != core.KindFacebookPage || c.ExternalID != "page-1" || c.Status != core.StatusActive ||
+			if c.GrantID != grantA || c.Provider != core.ProviderMeta || c.Kind != core.KindFacebookPage || c.ExternalID != "page-1" || c.Status != core.StatusActive ||
 				c.TokenEnc != "v1.k1.page" || c.TokenKeyID != "k1" || !c.NextDueAt.Equal(f.now.Add(time.Hour)) || !c.LastCheckedAt.IsZero() || c.LastError != "" {
 				t.Errorf("connection = %+v", c)
 			}
