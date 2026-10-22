@@ -235,12 +235,30 @@ Delivered:
     exiting.
   - Fix: `make test` sets `RYUK_RECONNECTION_TIMEOUT=5m`.
 
-## Next session: verify on a normal Docker host
+### Verified on macOS (2026-10-22)
 
-The Codespace could not run the Compose stack end to end, because Docker
-bridge traffic is dropped there. `docs/handoff.md` lists what remains to
-verify on the Mac before M3: the full stack smoke in both modes, the
-Mailpit manual check, and the first CI run of the account flow.
+The Codespace could not run the Compose stack end to end (Docker bridge
+traffic is dropped there). The `docs/handoff.md` checklist was completed on
+a normal Docker host: Apple Silicon, Docker 29.9.1, Go 1.27.3.
+
+- **`make check`**: green as-is. Coverage core 96.9%, overall 87.2%; gosec
+  0 issues; govulncheck 0 called vulnerabilities.
+- **Stack smoke, production config** (`compose.yaml` alone): 41/41,
+  including datastore isolation (no egress, no published ports) and the
+  three pre-verification account-flow checks.
+- **Stack smoke, dev overlay** (`make up && make smoke`): 52/52, including
+  all 17 account-flow checks. This is the first time the account flow ran
+  inside Compose.
+- **Manual Mailpit check**: the verification email arrives with text and
+  HTML parts and a `…/verify-email#token=…` link.
+- **Fix found on the way**: `scripts/stack-smoke.sh` called `timeout(1)`,
+  which macOS lacks. `tcp_open` moved to `scripts/lib/net.sh` and now polls
+  a background connect with a 5s deadline, using only bash 3.2 builtins and
+  `sleep`. It is specified by `scripts/net_test.go` (red first, run in the
+  `guard-macos` CI job), mutation-checked, and shellcheck-clean.
+
+Still open: the first CI run of the account flow (`stack-smoke` job) after
+pushing.
 
 ## Open questions and follow-ups
 
