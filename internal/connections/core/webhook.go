@@ -99,3 +99,10 @@ func decodeHexSHA256(s string) ([]byte, bool) {
 	b, err := hex.DecodeString(s)
 	return b, err == nil
 }
+
+// AppSecretProof is Meta's appsecret_proof for a Graph call made with
+// accessToken: the lowercase hex HMAC-SHA256 of the token keyed with the
+// app secret.
+func AppSecretProof(accessToken string, appSecret []byte) string {
+	return hex.EncodeToString(mac(appSecret, []byte(accessToken)))
+}
