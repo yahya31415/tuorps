@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -67,4 +68,28 @@ type fuzzBody struct {
 // The shared harness itself must run cleanly over its seeds.
 func FuzzHarness(f *testing.F) {
 	httpxtestFuzz(f)
+}
+
+// NewList is the keyset page envelope every list endpoint returns: items is
+// never null, and next_cursor is set only when the page came back full.
+func TestNewList(t *testing.T) {
+	a := uuid.MustParse("0199c3f0-7a2b-7c3d-8e4f-5a6b7c8d9e01")
+	b := uuid.MustParse("0199c3f0-7a2b-7c3d-8e4f-5a6b7c8d9e02")
+	self := func(id uuid.UUID) uuid.UUID { return id }
+
+	empty := httpx.NewList[uuid.UUID](nil, 2, self)
+	if empty.Items == nil || len(empty.Items) != 0 || empty.NextCursor != nil {
+		t.Errorf("empty page = %+v, want [] and no cursor", empty)
+	}
+	if short := httpx.NewList([]uuid.UUID{a}, 2, self); short.NextCursor != nil {
+		t.Errorf("short page has a cursor: %q", *short.NextCursor)
+	}
+	full := httpx.NewList([]uuid.UUID{a, b}, 2, self)
+	if full.NextCursor == nil || *full.NextCursor != httpx.EncodeCursor(b) {
+		t.Errorf("full page cursor = %v, want the cursor of the last item", full.NextCursor)
+	}
+	body, err := json.Marshal(empty)
+	if err != nil || string(body) != `{"items":[],"next_cursor":null}` {
+		t.Errorf("JSON = %s, %v", body, err)
+	}
 }
