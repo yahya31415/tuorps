@@ -63,6 +63,8 @@ const (
 	PermInboxRead          Permission = "inbox.read"
 	PermInboxReply         Permission = "inbox.reply"
 	PermAnalyticsRead      Permission = "analytics.read"
+	PermConnectionRead     Permission = "connection.read"
+	PermConnectionManage   Permission = "connection.manage"
 )
 
 // AllPermissions lists every permission.
@@ -70,7 +72,7 @@ func AllPermissions() []Permission {
 	return []Permission{
 		PermWorkspaceManage, PermBrandCreate, PermAuditRead,
 		PermBrandRead, PermBrandManage, PermBrandMembersManage, PermPostCreate, PermPostPublish,
-		PermInboxRead, PermInboxReply, PermAnalyticsRead,
+		PermInboxRead, PermInboxReply, PermAnalyticsRead, PermConnectionRead, PermConnectionManage,
 	}
 }
 
@@ -78,13 +80,13 @@ func AllPermissions() []Permission {
 // permissions; admins hold all brand-scoped ones.
 func roleAllows(r Role, perm Permission) bool {
 	switch perm {
-	case PermBrandRead, PermAnalyticsRead:
+	case PermBrandRead, PermAnalyticsRead, PermConnectionRead:
 		return r == RoleViewer || r == RoleAgent || r == RolePublisher || r == RoleAdmin
 	case PermInboxRead, PermInboxReply:
 		return r == RoleAgent || r == RoleAdmin
 	case PermPostCreate, PermPostPublish:
 		return r == RolePublisher || r == RoleAdmin
-	case PermBrandManage, PermBrandMembersManage:
+	case PermBrandManage, PermBrandMembersManage, PermConnectionManage:
 		return r == RoleAdmin
 	}
 	return false
