@@ -40,6 +40,35 @@ type BrandRole struct {
 	CreatedAt   time.Time
 }
 
+type Connection struct {
+	ID             uuid.UUID
+	WorkspaceID    uuid.UUID
+	BrandID        uuid.UUID
+	GrantID        uuid.UUID
+	Kind           string
+	ExternalID     string
+	DisplayName    string
+	TokenEnc       *string
+	TokenKeyID     *string
+	Status         string
+	TokenExpiresAt *time.Time
+	LastCheckedAt  *time.Time
+	LastError      *string
+	WarnedDays     int16
+	NextDueAt      *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type DataDeletionRequest struct {
+	ConfirmationCode string
+	Provider         string
+	ProviderUserID   string
+	Status           string
+	RequestedAt      time.Time
+	CompletedAt      *time.Time
+}
+
 type EmailToken struct {
 	ID        uuid.UUID
 	UserID    uuid.UUID
@@ -62,6 +91,27 @@ type Invitation struct {
 	AcceptedBy      *uuid.UUID
 	RevokedAt       *time.Time
 	CreatedAt       time.Time
+}
+
+type OauthGrant struct {
+	ID                  uuid.UUID
+	WorkspaceID         uuid.UUID
+	BrandID             uuid.UUID
+	Provider            string
+	ProviderUserID      string
+	Scopes              []string
+	MissingScopes       []string
+	AccessTokenEnc      *string
+	AccessTokenKeyID    *string
+	RefreshTokenEnc     *string
+	RefreshTokenKeyID   *string
+	AccessExpiresAt     *time.Time
+	RefreshExpiresAt    *time.Time
+	DataAccessExpiresAt *time.Time
+	TokenIssuedAt       *time.Time
+	CreatedBy           uuid.UUID
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type RecoveryCode struct {
@@ -90,6 +140,12 @@ type UserCredential struct {
 	TotpEnabledAt *time.Time
 	TotpLastStep  *int64
 	UpdatedAt     time.Time
+}
+
+type WebhookReceipt struct {
+	Provider   string
+	DedupeKey  string
+	ReceivedAt time.Time
 }
 
 type Workspace struct {
