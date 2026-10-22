@@ -143,6 +143,24 @@ AS $$
 $$;
 -- +goose StatementEnd
 
+-- Grants created before p_before that still hold tokens but no live
+-- connection: abandoned or fully disconnected logins, whose tokens are
+-- wiped (ADR 0009).
+-- +goose StatementBegin
+CREATE FUNCTION grants_unused(p_before timestamptz)
+RETURNS TABLE (id uuid, workspace_id uuid, brand_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = tuorps, pg_temp
+AS $$
+    SELECT g.id, g.workspace_id, g.brand_id
+    FROM oauth_grants g
+    WHERE g.created_at < p_before
+      AND (g.access_token_enc IS NOT NULL OR g.refresh_token_enc IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM connections c
+                      WHERE c.workspace_id = g.workspace_id AND c.grant_id = g.id AND c.status <> 'disconnected')
+    LIMIT 500
+$$;
+-- +goose StatementEnd
+
 -- +goose StatementBegin
 CREATE FUNCTION webhook_receipts_prune(p_before timestamptz)
 RETURNS bigint
@@ -177,16 +195,17 @@ $$;
 -- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION connections_due(timestamptz, int), connections_by_external(text, text),
-    grants_by_provider_user(text, text), webhook_receipts_prune(timestamptz),
+    grants_by_provider_user(text, text), grants_unused(timestamptz), webhook_receipts_prune(timestamptz),
     data_deletion_status(text), data_deletion_complete(text, timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION connections_due(timestamptz, int), connections_by_external(text, text),
-    grants_by_provider_user(text, text), webhook_receipts_prune(timestamptz),
+    grants_by_provider_user(text, text), grants_unused(timestamptz), webhook_receipts_prune(timestamptz),
     data_deletion_status(text), data_deletion_complete(text, timestamptz) TO tuorps_app;
 
 -- +goose Down
 DROP FUNCTION data_deletion_complete(text, timestamptz);
 DROP FUNCTION data_deletion_status(text);
 DROP FUNCTION webhook_receipts_prune(timestamptz);
+DROP FUNCTION grants_unused(timestamptz);
 DROP FUNCTION grants_by_provider_user(text, text);
 DROP FUNCTION connections_by_external(text, text);
 DROP FUNCTION connections_due(timestamptz, int);
