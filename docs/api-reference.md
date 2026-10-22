@@ -6,7 +6,7 @@ Oct 19, 2026 · @Yahya
 
 Every core Sprout feature (publishing, a unified inbox, reporting) can be built on official APIs from Meta, LinkedIn and Google. Social listening across the open web cannot; it needs a separate data source. Each platform gates write access behind an app review, so access approval, not coding, is the long pole.
 
-The table maps each Sprout feature to the APIs that power it. Later sections list the endpoints, permissions and limits per platform. Versions checked: Meta Graph API v26.0 (released July 29, 2026), LinkedIn versioned REST API, YouTube Data API v3.
+The table maps each Sprout feature to the APIs that power it. Later sections list the endpoints, permissions and limits per platform. Versions checked: Meta Graph API v26.0 (released July 29, 2026), LinkedIn versioned REST API (pinned `202610`), YouTube Data API v3. OAuth, token and webhook-security details are in "OAuth, tokens and webhook security".
 
 | Sprout feature | Facebook | Instagram | LinkedIn | YouTube | WhatsApp |
 | --- | --- | --- | --- | --- | --- |
@@ -150,7 +150,7 @@ Rate limit: non-messaging calls are capped at 4,800 × the account's impressions
 
 LinkedIn gives company-page publishing, comments, reactions, notifications and page analytics through one vetted product, the Community Management API. Page DMs are not available to third parties, and there is no native post scheduling. Access starts at a Development tier (500 calls per app and 100 per member per day) and needs a screencast review to reach Standard tier ([Community Management overview](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/community-management-overview?view=li-lms-2026-08)).
 
-Every call needs the headers `LinkedIn-Version: YYYYMM` (for example `202609`) and `X-Restli-Protocol-Version: 2.0.0`. Each monthly version is sunset after about a year; version 202511 sunsets November 16, 2026. Base URL: `https://api.linkedin.com/rest/`.
+Every call needs the headers `LinkedIn-Version: YYYYMM` (Tuorps pins `202610`, sunset October 15, 2027) and `X-Restli-Protocol-Version: 2.0.0`. Each monthly version is supported for at least a year; version 202511 sunsets November 16, 2026. Base URL: `https://api.linkedin.com/rest/`.
 
 ### Endpoints
 
@@ -196,7 +196,7 @@ Tokens last 60 days. Programmatic refresh tokens are only issued to approved par
 
 YouTube covers uploads with native scheduling, comment moderation and deep analytics. It has no DMs and no comment webhooks, so the inbox must poll. Quota, not approval, is the main constraint. Since June 2026, `videos.insert` and `search.list` each have their own bucket of 100 calls per day, plus 10,000 units per day for everything else ([Quota Calculator](https://developers.google.com/youtube/v3/determine_quota_cost)).
 
-Uploads from unverified API projects created after July 28, 2020 are forced to private. Pass Google's API compliance audit before launch, or every scheduled video stays private.
+The July 28, 2020 revision history says uploads from unverified API projects are forced to private until they pass Google's API compliance audit, but the current `videos.insert` reference says they are not restricted (see "OAuth, tokens and webhook security"). Confirm with Google, and pass the audit before launch either way.
 
 ### Endpoints (Data API v3)
 
@@ -287,6 +287,98 @@ INR rates are as reported by several Indian BSPs, for example [ChatMaxima](https
 - **Messaging limits**: new business portfolios can message 250 unique users per rolling 24 h outside the service window. It rises to 2,000 after verification or 2,000 high-quality template sends in 30 days, then scales automatically. Limits are shared by all numbers in a portfolio ([Messaging limits](https://developers.facebook.com/docs/whatsapp/messaging-limits)).
 - **Template quality**: low-quality ratings pause templates and block scaling, so build quality monitoring into the product.
 - **AI providers**: Meta has a separate pricing policy for AI providers on WhatsApp, effective February 16, 2026; review it before adding an AI agent.
+
+## OAuth, tokens and webhook security
+
+Checked against official developer docs on Oct 22, 2026, for M3 (account connections). Lines marked **UNCONFIRMED** are not stated on any official page; the plan for each is given, and each must be verified against a real app in development mode before launch.
+
+### Summary
+
+| | Meta (Facebook Login for Business) | Instagram Login | LinkedIn | Google (YouTube) |
+| --- | --- | --- | --- | --- |
+| Authorize | `https://www.facebook.com/v26.0/dialog/oauth` | `https://www.instagram.com/oauth/authorize` | `https://www.linkedin.com/oauth/v2/authorization` | `https://accounts.google.com/o/oauth2/v2/auth` |
+| Token | `GET https://graph.facebook.com/v26.0/oauth/access_token` | `POST https://api.instagram.com/oauth/access_token` | `POST https://www.linkedin.com/oauth/v2/accessToken` | `POST https://oauth2.googleapis.com/token` |
+| Secret sent in | Query string (only form documented) | Form body | Form body | Form body |
+| PKCE for web apps | Not documented with `config_id` | Not documented | Native apps only | Installed apps only |
+| `state` | Required | Optional (we always send it) | Optional (we always send it) | Recommended (we always send it) |
+| Code lifetime | UNCONFIRMED | 1 hour, single use | 30 minutes | Not stated; single use |
+| Stored token | Long-lived user token (~60 days) and Page tokens (no expiry) | Long-lived token (60 days) | Access token (60 days) | Refresh token, plus access token (~1 hour) |
+| Renewal | Page tokens need none; health check | `refresh_access_token` after 24 h | Refresh tokens for approved partners only; otherwise re-consent | `grant_type=refresh_token` |
+| Revoke | `DELETE /{user-id}/permissions` | UNCONFIRMED (none found) | UNCONFIRMED (none found) | `POST https://oauth2.googleapis.com/revoke` |
+| Webhook signature | `X-Hub-Signature-256: sha256=<hex>`, app secret | Same header; **which secret is UNCONFIRMED** | `X-LI-Signature: <hex>` of `"hmacsha256=" + body`, client secret | No comment webhooks (polling) |
+
+No platform documents PKCE for a confidential web client in this flow, so Tuorps does not use PKCE in M3. A single-use, session-bound `state` is the CSRF defence for every provider (ADR 0008). Never hard-code a token lifetime: always use the response's `expires_in`. The docs' own samples contradict their prose (Google shows 3920 s; LinkedIn shows 86400 s next to "60 days").
+
+### Meta: Facebook Login for Business
+
+- **Authorize** `https://www.facebook.com/v26.0/dialog/oauth` with `client_id`, `redirect_uri`, `state`, `response_type=code`, and `config_id` (it replaces `scope`; the configuration in the App Dashboard defines permissions and token type). A configuration can issue a **user access token** or a **business integration system user (BISU) token** (`override_default_response_type=true`; "defaults to never expire"). M3 uses user tokens ([Facebook Login for Business](https://developers.facebook.com/docs/facebook-login/facebook-login-for-business), [manual flow](https://developers.facebook.com/docs/facebook-login/guides/advanced/manual-flow)).
+- **Exchange the code**: `GET https://graph.facebook.com/v26.0/oauth/access_token?client_id&redirect_uri&client_secret&code` returns `access_token`, `token_type`, `expires_in`. Only this GET form is documented. The URL holds the app secret, so it must never reach logs or error text.
+- **Long-lived user token**: `GET /oauth/access_token?grant_type=fb_exchange_token&client_id&client_secret&fb_exchange_token=<short-lived>`, server-side only. It lasts about 60 days and "may change without warning or expire early" ([access tokens](https://developers.facebook.com/docs/facebook-login/guides/access-tokens), [long-lived tokens](https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived)).
+- **Page tokens**: `GET /{app-scoped-user-id}/accounts` with the long-lived user token returns Page tokens that "do not have an expiration date". From a short-lived user token, they are short-lived ([Pages API getting started](https://developers.facebook.com/docs/pages-api/getting-started)). Instagram with Facebook Login uses the linked Page's token.
+- **Health check**: `GET /debug_token?input_token=<t>&access_token=<app-id>|<app-secret>` returns `data.is_valid`, `expires_at`, `data_access_expires_at`, `scopes`, `granular_scopes`, `user_id` ([debug_token](https://developers.facebook.com/docs/graph-api/reference/debug_token)).
+- **Data access expiry**: 90 days after the user was last active, the app loses data access until the user reauthorizes (`auth_type=reauthorize`). The `pages_*`, `business_management` and `read_insights` permissions are exempt. `instagram_*` permissions are not on the exempt list, so the health check also watches `data_access_expires_at` ([auth vs data access](https://developers.facebook.com/docs/facebook-login/auth-vs-data)).
+- **Invalidation**: error 190 with subcode 458 (app removed), 459 (checkpoint), 460 (password changed), 463 (expired), 467 (invalid) or 492 (user lost their Page role) means the connection needs re-auth ([error handling](https://developers.facebook.com/docs/graph-api/guides/error-handling)). No official page lists every cause of Page-token invalidation.
+- **Revoke**: `DELETE /{user-id}/permissions` (all) or `/{user-id}/permissions/{name}` ([permissions](https://developers.facebook.com/docs/graph-api/reference/user/permissions/)).
+- **`appsecret_proof`**: HMAC-SHA256 of the access token keyed with the app secret, sent on every Graph call. Turn on "Require App Secret" in the app settings ([Login security](https://developers.facebook.com/docs/facebook-login/security)).
+
+### Instagram API with Instagram Login
+
+- **Credentials**: the **Instagram app ID and secret** (App Dashboard → Instagram → API setup with Instagram login), distinct from the Meta app ID and secret ([create an Instagram app](https://developers.facebook.com/docs/instagram-platform/create-an-instagram-app/)).
+- **Authorize** `https://www.instagram.com/oauth/authorize` with `client_id`, `redirect_uri`, `response_type=code`, `scope` (comma-separated: `instagram_business_basic`, `instagram_business_content_publish`, `instagram_business_manage_comments`, `instagram_business_manage_messages`, plus `instagram_business_manage_insights` for insights), `state`. The reference page shows `api.instagram.com` instead; Business Login is followed. Strip the `#_` that is appended to the returned code. The code is valid for 1 hour, single use ([Business Login](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/business-login), [Insights](https://developers.facebook.com/docs/instagram-platform/insights/)).
+- **Exchange**: `POST https://api.instagram.com/oauth/access_token` (form: `client_id`, `client_secret`, `grant_type=authorization_code`, `redirect_uri`, `code`) returns a **wrapped** response `{"data":[{"access_token","user_id","permissions"}]}`. `permissions` is comma-separated. The token lasts 1 hour.
+- **Long-lived**: `GET https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret&access_token` returns `{access_token, token_type, expires_in}` (60 days). The secret is only documented in the query string ([access_token](https://developers.facebook.com/docs/instagram-platform/reference/access_token)).
+- **Refresh**: `GET https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token`, once the token is at least 24 hours old and still valid. It is then valid for 60 days from the refresh. A token not refreshed within 60 days cannot be refreshed ([refresh_access_token](https://developers.facebook.com/docs/instagram-platform/reference/refresh_access_token)).
+- **Identity**: `GET https://graph.instagram.com/v26.0/me?fields=user_id,username,account_type`. `user_id` is the professional account ID, which is the `id` webhooks carry, so it is the stored `external_id`. The docs show this response both wrapped in `data[]` and flat, so the parser accepts both ([me](https://developers.facebook.com/docs/instagram-platform/reference/me)).
+- Graph calls use versioned paths (`/v26.0/`). The token endpoints are documented without a version.
+
+### LinkedIn
+
+- **Authorize** `https://www.linkedin.com/oauth/v2/authorization` with `response_type=code`, `client_id`, `redirect_uri` (an exact HTTPS match), `state`, and `scope` (space-delimited). The code lasts 30 minutes. A returned `state` that does not match must be rejected. Errors arrive as `error=user_cancelled_login|user_cancelled_authorize`. If a grant already exists, the consent screen is skipped ([authorization code flow](https://learn.microsoft.com/en-us/linkedin/shared/authentication/authorization-code-flow)).
+- **Exchange**: `POST https://www.linkedin.com/oauth/v2/accessToken` (form: `grant_type=authorization_code`, `code`, `client_id`, `client_secret`, `redirect_uri`) returns `access_token`, `expires_in` (60 days) and `scope`. `refresh_token` and `refresh_token_expires_in` are returned only to apps enabled for them. Allow for tokens of 1000 characters or more. Requesting a different scope invalidates earlier tokens.
+- **Refresh tokens**: available to approved Marketing Developer Platform partners. Whether Community Management API approval alone includes them is UNCONFIRMED. Refresh tokens last 365 days, and refreshing does not extend that ([programmatic refresh tokens](https://learn.microsoft.com/en-us/linkedin/shared/authentication/programmatic-refresh-tokens)).
+- **Introspection**: `POST https://www.linkedin.com/oauth/v2/introspectToken` (form: `client_id`, `client_secret`, `token`) returns `active`, `status` (`active|expired|revoked`), `expires_at`, `scope` (comma-separated) ([token introspection](https://learn.microsoft.com/en-us/linkedin/shared/authentication/token-introspection)). It is used as the health check.
+- **Revoke**: no official endpoint found (UNCONFIRMED). Disconnect wipes Tuorps's copy of the token.
+- **Pages the member can manage**: `GET https://api.linkedin.com/rest/organizationAcls?q=roleAssignee` returns elements with `role`, `state` and an organization URN (the samples use both `organization` and `organizationTarget`). Only `state=APPROVED` with role ADMINISTRATOR, CONTENT_ADMINISTRATOR or DIRECT_SPONSORED_CONTENT_POSTER may post ([organization access control](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role?view=li-lms-2026-10)).
+
+### Google (YouTube)
+
+- **Authorize** `https://accounts.google.com/o/oauth2/v2/auth` with `client_id`, `redirect_uri`, `response_type=code`, `scope` (space-delimited), `access_type=offline` (needed for a refresh token), `prompt=consent`, `include_granted_scopes=true`, `state`. Redirect errors include `access_denied`, `admin_policy_enforced` and `org_internal` ([web server apps](https://developers.google.com/identity/protocols/oauth2/web-server)).
+- **Exchange**: `POST https://oauth2.googleapis.com/token` (form: `code`, `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code`) returns `access_token`, `expires_in`, `refresh_token` (offline only), `scope` and `token_type`. Ignore unknown fields.
+- **Granular consent**: users may grant only some scopes. Compare `scope` with what was requested, and record and surface any missing scope instead of failing.
+- **Refresh**: `POST` to the same endpoint with `grant_type=refresh_token`. Usually no new refresh token is returned. `invalid_grant` means the token was revoked or has expired, so the connection needs re-auth. Refresh tokens die after 6 months unused, when there are more than 100 per account per client (the oldest is dropped silently), and **after 7 days while the OAuth app is in "Testing" with external users** ([OAuth 2.0 overview](https://developers.google.com/identity/protocols/oauth2)).
+- **Revoke**: `POST https://oauth2.googleapis.com/revoke` with `token=`. This revokes every scope for the whole project.
+- **Channel**: `GET https://www.googleapis.com/youtube/v3/channels?part=id,snippet&mine=true` (1 unit). How one Google account with several channels or Brand Accounts maps to a token is UNCONFIRMED, so handle more than one item ([channels.list](https://developers.google.com/youtube/v3/docs/channels/list)).
+- **Upload privacy: the docs conflict.** The July 28, 2020 revision history says uploads from unverified projects are locked to private until an audit; the current [`videos.insert`](https://developers.google.com/youtube/v3/docs/videos/insert) reference says they are "not restricted to private viewing mode". Confirm with Google before M4 launch; the audit is worth passing either way ([quota and compliance audits](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)).
+- **Token-revoked push (not used in M3)**: [Cross-Account Protection (RISC)](https://developers.google.com/identity/protocols/risc) can push signed `token-revoked` events.
+
+### Webhook verification and dedupe
+
+| | Meta (Pages, Instagram via Facebook Login) | Instagram Login | LinkedIn |
+| --- | --- | --- | --- |
+| Endpoint check | `GET ?hub.mode=subscribe&hub.challenge&hub.verify_token`; check the token, echo `hub.challenge` | Same | `GET ?challengeCode=<uuid>`; within 3 s reply `{"challengeCode","challengeResponse": hex(HMAC-SHA256(clientSecret, challengeCode))}`. Repeated every 2 h; 3 failures block the endpoint |
+| Payload signature | `X-Hub-Signature-256: sha256=<hex HMAC-SHA256(appSecret, rawBody)>` | Same header. The docs say "your app's App Secret" without saying which; **Tuorps accepts the Instagram app secret or the Meta app secret** until a real delivery confirms one | `X-LI-Signature: <hex HMAC-SHA256(clientSecret, "hmacsha256=" + rawBody)>` |
+| Subscribe an account | `POST /{page-id}/subscribed_apps?subscribed_fields=…` with a Page token (needs `pages_manage_metadata`). For Instagram, subscribe the `instagram` object in the dashboard and the linked Page | `POST https://graph.instagram.com/v26.0/me/subscribed_apps?subscribed_fields=…` with the IG token | `PUT /rest/eventSubscriptions/(developerApplication:…,user:urn:li:person:…,entity:urn:li:organization:…,eventType:ORGANIZATION_SOCIAL_ACTION_NOTIFICATIONS)` body `{"webhook": url}`; needs ADMINISTRATOR + `rw_organization_admin`; ends when the grant ends |
+| Batch | Up to 1000 entries | Up to 1000 | Up to 10 notifications |
+| Retries | For 36 h with backoff | For 36 h | Every 5 min for 8 h |
+| Dedupe key | None provided: SHA-256 of the raw body | Same | `notificationId` (repeats per subscriber) |
+
+Sources: [Meta webhooks](https://developers.facebook.com/docs/graph-api/webhooks/getting-started), [webhooks for Pages](https://developers.facebook.com/docs/graph-api/webhooks/getting-started/webhooks-for-pages), [Instagram webhooks setup](https://developers.facebook.com/documentation/instagram-platform/webhooks/setup), [Instagram webhook fields](https://developers.facebook.com/documentation/instagram-platform/webhooks/fields), [LinkedIn webhook validation](https://learn.microsoft.com/en-us/linkedin/shared/api-guide/webhook-validation), [LinkedIn organization notifications](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-social-action-notifications?view=li-lms-2026-10). Instagram messaging webhooks are available only with Instagram Login, not with Facebook Login.
+
+### Deauthorize and data deletion (Meta and Instagram)
+
+- **Data deletion**: POST form field `signed_request` = `<base64url signature>.<base64url payload>`. The signature is HMAC-SHA256 over the **still-encoded** payload segment, keyed with the app secret (compare in constant time). The payload holds `algorithm` (`HMAC-SHA256`), `issued_at`, `expires` and `user_id` (app-scoped). The response must be JSON `{"url": "<status page>", "confirmation_code": "<code>"}` ([data deletion callback](https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback), [signed request](https://developers.facebook.com/docs/reference/login/signed-request)). Required for App Review and Live mode, at least for Consumer apps; whether Business-type apps are bound the same way is UNCONFIRMED (Tuorps provides it regardless).
+- **Deauthorize**: a callback URL "pinged" when a user removes the app. That it carries the same `signed_request` is UNCONFIRMED (community sources only), so Tuorps verifies it the same way and also detects deauthorization through error 190/458 on the next call.
+- **Instagram Login**: both callbacks are set under Business login settings. Which secret signs them, and whether `user_id` is the Instagram-scoped ID or the professional account ID, are UNCONFIRMED. Tuorps accepts either of its two secrets and matches either ID.
+
+### Pinned versions
+
+| API | Pinned | Sunset | Policy |
+| --- | --- | --- | --- |
+| Meta Graph API (incl. graph.instagram.com) | v26.0 (2026-07-29) | Not before 2028-07-29 (two years after v27.0 ships) | At least 2 years; expired versions fall back to the next oldest ([versions](https://developers.facebook.com/docs/graph-api/changelog/versions), [versioning](https://developers.facebook.com/docs/graph-api/guides/versioning)) |
+| LinkedIn Marketing API | `202610` | 2027-10-15 | Monthly versions, each supported at least one year; the `LinkedIn-Version` header is mandatory and has no default ([versioning](https://learn.microsoft.com/en-us/linkedin/marketing/versioning)) |
+| YouTube Data API | v3 | None announced | Unversioned |
+
+Active LinkedIn versions run from `202601` (sunset 2027-01-15) to `202610`. `202511` sunsets on 2026-11-16 and must not be used; there is no `202512`.
 
 ## Access, tokens and gaps
 

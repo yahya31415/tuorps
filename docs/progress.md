@@ -7,7 +7,7 @@
 | Step 0: CLAUDE.md + TDD guard | ✅ done |
 | M1 Foundation | ✅ done (2026-10-19) |
 | M2 Auth, tenancy, audit and email | ✅ done (2026-10-19) |
-| M3 Account connections and token vault | next |
+| M3 Account connections and token vault | in progress (Gate 0 approved 2026-10-22) |
 | M4 Publishing | — |
 | M5 Unified inbox | — |
 | M6 WhatsApp suite | — |
