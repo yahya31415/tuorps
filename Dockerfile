@@ -2,7 +2,7 @@
 # One image definition for both binaries: --build-arg CMD=api|worker.
 # Final stage is distroless static (no shell, no package manager), non-root.
 
-FROM golang:1.27.2-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS build
+FROM golang:1.27.3-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS build
 WORKDIR /src
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-trimpath
 COPY go.mod go.sum ./
