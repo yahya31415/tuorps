@@ -72,7 +72,7 @@ services:
 
   redis:
     <<: *hardened
-    image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+    image: redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     user: redis
     command: ["redis-server", "--aclfile", "/run/secrets/redis_acl", "--appendonly", "yes", "--dir", "/data"]
     secrets: [redis_acl]
